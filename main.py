@@ -20,7 +20,6 @@ API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://sulumi-bot.onrender.com")
 
 # ==================== CUSTOM EMOJI ID ====================
-# ID строго в виде строк
 CUSTOM_EMOJI = {
     "stars": "5958376256788502078",
     "grams": "6006074913742396956",
@@ -29,6 +28,10 @@ CUSTOM_EMOJI = {
     "forward": "5832251986635920010",
     "check": "6019523512908124649"
 }
+
+# ==================== PREMIUM EMOJI HELPER ====================
+def ce(name, fallback):
+    return f'<tg-emoji emoji-id="{CUSTOM_EMOJI[name]}">{fallback}</tg-emoji>'
 
 # ==================== ХРАНИЛИЩА ====================
 deals = {}
@@ -145,11 +148,9 @@ def okb(did):
             ]
         ]
     }
-    print("DEBUG okb:", kb) # Вывод в логи для проверки
     return kb
 
 def aakb(did, h):
-    # Формируем ссылку tg://send_gift?to=username (без @)
     clean_h = h.lstrip('@')
     gift_link = f"tg://send_gift?to={clean_h}"
     
@@ -171,7 +172,6 @@ def aakb(did, h):
             ]
         ]
     }
-    print("DEBUG aakb:", kb) # Вывод в логи для проверки
     return kb
 
 def amenu():
@@ -210,7 +210,7 @@ def handle_message(msg):
     if not txt.startswith("/"): return
 
     if txt == "/start":
-        cmd_text = """✨ <b>Sulumi Team Bot</b>
+        cmd_text = f"""✨ <b>Sulumi Team Bot</b>
 
 📋 <b>Команды:</b>
 /send — Создать оффер
@@ -252,7 +252,7 @@ def handle_message(msg):
             return
 
         s = gs(uid)
-        cs = "⭐" if s["cur"] == "stars" else "💎"
+        cs = ce("stars", "⭐") if s["cur"] == "stars" else ce("grams", "💎")
         did = str(uuid.uuid4())[:8]
         send_ci = bconns.get(uid) or bconns.get(OWNER_ID)
 
@@ -278,13 +278,14 @@ def handle_message(msg):
     if txt == "/settings":
         s = gs(uid)
         lt = "🇷🇺 Русский" if s["lang"] == "ru" else "🇬🇧 English"
-        ct = "⭐ Звёзды" if s["cur"] == "stars" else "💎 Грамы"
+        ct = f"{ce('stars', '⭐')} Звёзды" if s["cur"] == "stars" else f"{ce('grams', '💎')} Грамы"
         sm(cid, f"""⚙️ <b>Настройки</b>\n\n🌐 Язык: {lt}\n💱 Валюта: {ct}\n👑 Держатель: @{s['hold']}\n\n<b>Изменение:</b>\n/lang ru|en\n/currency stars|grams\n/holder username""", bci=ci)
         return
 
     if txt == "/profile":
         s = gs(uid)
-        sm(cid, f"""👤 <b>Профиль</b>\n\n🆔 ID: <code>{uid}</code>\n💱 Валюта: {'⭐' if s['cur'] == 'stars' else '💎'}\n👑 Держатель: @{s['hold']}""", bci=ci)
+        cur_emoji = ce('stars', '⭐') if s['cur'] == 'stars' else ce('grams', '💎')
+        sm(cid, f"""👤 <b>Профиль</b>\n\n🆔 ID: <code>{uid}</code>\n💱 Валюта: {cur_emoji}\n👑 Держатель: @{s['hold']}""", bci=ci)
         return
 
     if txt == "/stats":
@@ -396,7 +397,7 @@ def handle_callback(cb):
         if not deal or deal["st"] != "pending": return
 
         deal["st"] = "accepted"
-        cs = "⭐" if deal["cur"] == "stars" else "💎"
+        cs = ce("stars", "⭐") if deal["cur"] == "stars" else ce("grams", "💎")
         nf = fmt(deal["num"])
         h = deal["hold"]
         nl = "https://t.me/nft/" + deal["slug"]
