@@ -1,11 +1,12 @@
 """
-Sulumi Team Bot — Final Full Version
+Sulumi Team Bot — Final DB + Tariffs + Auto-Delete Version
 """
 
 import os
 import re
 import uuid
 import time
+import sqlite3
 import requests
 from collections import deque
 from flask import Flask, request, jsonify
@@ -39,11 +40,64 @@ def btn(text, data, emoji):
 def btn_url(text, url, emoji):
     return {"text": text, "url": url, "icon_custom_emoji_id": E[emoji]}
 
-# ==================== ХРАНИЛИЩА ====================
+# ==================== БАЗА ДАННЫХ (SQLite) ====================
+DB_PATH = "sulumi_subscribers.db"
+INITIAL_SUBS = [869789263, -9065970214, -6421577466, -8350337709, -948464755, -9157210232]
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS subscribers (
+                 user_id INTEGER PRIMARY KEY,
+                 expires_at REAL)''') # -1.0 означает "навсегда"
+    
+    # Добавляем владельца навсегда
+    c.execute('INSERT OR IGNORE INTO subscribers (user_id, expires_at) VALUES (?, ?)', (OWNER_ID, -1.0))
+    
+    # Добавляем начальных подписчиков (навсегда, если их еще нет)
+    for uid in INITIAL_SUBS:
+        c.execute('INSERT OR IGNORE INTO subscribers (user_id, expires_at) VALUES (?, ?)', (uid, -1.0))
+        
+    conn.commit()
+    conn.close()
+
+def is_allowed(uid):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT expires_at FROM subscribers WHERE user_id = ?', (uid,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return False
+    if row[0] == -1.0:
+        return True
+    return row[0] > time.time()
+
+def add_subscription(uid, days):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    expires = -1.0 if days == -1 else time.time() + (days * 86400)
+    c.execute('INSERT OR REPLACE INTO subscribers (user_id, expires_at) VALUES (?, ?)', (uid, expires))
+    conn.commit()
+    conn.close()
+
+def get_expires_str(uid):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT expires_at FROM subscribers WHERE user_id = ?', (uid,))
+    row = c.fetchone()
+    conn.close()
+    if not row or row[0] == -1.0:
+        return "Навсегда"
+    return time.strftime("%d.%m.%Y %H:%M", time.localtime(row[0]))
+
+# Инициализируем БД при старте
+init_db()
+
+# ==================== ХРАНИЛИЩА (Runtime) ====================
 deals = {}
 users = {}
 bconns = {}
-allowed = [OWNER_ID]
 wholder = set()
 rlog = deque()
 rwait = 0
@@ -93,11 +147,7 @@ def sm_nft(cid, txt, nft_url, kb=None, bci=None):
         "chat_id": cid,
         "text": txt,
         "parse_mode": "HTML",
-        "link_preview_options": {
-            "is_disabled": False,
-            "show_above_text": True,
-            "url": nft_url
-        }
+        "link_preview_options": {"is_disabled": False, "show_above_text": True, "url": nft_url}
     }
     if kb: d["reply_markup"] = kb
     if bci: d["business_connection_id"] = bci
@@ -105,22 +155,9 @@ def sm_nft(cid, txt, nft_url, kb=None, bci=None):
 
 def em_nft(cid, mid, txt, nft_url, kb=None, bci=None):
     d = {
-        "chat_id": cid,
-        "message_id": mid,
-        "text": txt,
-        "parse_mode": "HTML",
-        "link_preview_options": {
-            "is_disabled": False,
-            "show_above_text": True,
-            "url": nft_url
-        }
+        "chat_id": cid, "message_id": mid, "text": txt, "parse_mode": "HTML",
+        "link_preview_options": {"is_disabled": False, "show_above_text": True, "url": nft_url}
     }
-    if kb: d["reply_markup"] = kb
-    if bci: d["business_connection_id"] = bci
-    return api("editMessageText", **d)
-
-def em(cid, mid, txt, kb=None, bci=None):
-    d = {"chat_id": cid, "message_id": mid, "text": txt, "parse_mode": "HTML"}
     if kb: d["reply_markup"] = kb
     if bci: d["business_connection_id"] = bci
     return api("editMessageText", **d)
@@ -137,29 +174,11 @@ def ac(cb, txt=None, sa=False):
 
 # ==================== КЛАВИАТУРЫ ====================
 def okb(did):
-    return {
-        "inline_keyboard": [
-            [
-                btn(" Отклонить", f"decline:{did}", "decline"),
-                btn(" Принять", f"accept:{did}", "accept")
-            ]
-        ]
-    }
+    return {"inline_keyboard": [[btn(" Отклонить", f"decline:{did}", "decline"), btn(" Принять", f"accept:{did}", "accept")]]}
 
 def aakb(did, h):
     clean_h = str(h).replace("@", "").strip()
-    gift_link = f"tg://send_gift?to={clean_h}"
-    
-    return {
-        "inline_keyboard": [
-            [
-                btn_url(" Передать", gift_link, "forward")
-            ],
-            [
-                btn(" Проверить", f"check:{did}", "check")
-            ]
-        ]
-    }
+    return {"inline_keyboard": [[btn_url(" Передать", f"tg://send_gift?to={clean_h}", "forward")], [btn(" Проверить", f"check:{did}", "check")]]}
 
 def amenu():
     return {"inline_keyboard": [[{"text": "📋 Список доступов", "callback_data": "admin_list"}]]}
@@ -180,13 +199,12 @@ def handle_message(msg):
     mid = msg.get("message_id")
     ci = msg.get("business_connection_id")
 
-    # Сохраняем business_connection_id пользователя
     if ci:
         bconns[uid] = ci
 
     txt = (msg.get("text") or "").strip()
 
-    # 1. Обработка смены держателя
+    # 1. Смена держателя
     if uid in wholder:
         un = txt.lstrip("@").lower()
         if un and " " not in un:
@@ -197,13 +215,13 @@ def handle_message(msg):
             sm(cid, "❌ Неверный формат. Напишите username без @", bci=ci)
         return
 
-    # 2. Проверка доступа для команд
-    if txt.startswith("/") and uid not in allowed:
-        sm(cid, f"🔒 <b>Доступ закрыт</b>\n\n💰 <b>@{PAYMENT}</b>", bci=ci)
+    # 2. ИГНОРИРОВАНИЕ обычных сообщений (никаких "ало")
+    if not txt.startswith("/"): 
         return
 
-    # 3. ИГНОРИРОВАНИЕ обычных сообщений (никаких "ало")
-    if not txt.startswith("/"): 
+    # 3. Проверка доступа через БД
+    if txt.startswith("/") and not is_allowed(uid) and uid != OWNER_ID:
+        sm(cid, f"🔒 <b>Доступ закрыт</b>\n\n💰 <b>Купите тариф у @{PAYMENT}</b>\n/тарифы — узнать цены", bci=ci)
         return
 
     if txt == "/start":
@@ -214,19 +232,30 @@ def handle_message(msg):
 2. Напиши: <code>/send ссылка цена</code>
 
 📋 <b>Команды:</b>
+/тарифы — Цены на доступ
 /settings — Настройки
-/profile — Профиль
-/stats — Статистика
-/help — Помощь"""
+/profile — Профиль"""
         if uid == OWNER_ID:
-            cmd_text += "\n\n🔐 <b>Админ:</b>\n/give ID — Выдать доступ\n/revoke ID — Забрать доступ\n/list — Список"
+            cmd_text += "\n\n🔐 <b>Админ:</b>\n/add <id> <дни> (-1 навсегда)\n/list — Список"
         sm(cid, cmd_text, bci=ci)
+        return
+
+    if txt == "/тарифы" or txt == "/tariffs":
+        sm(cid, f"""💎 <b>Тарифы Sulumi Team</b>
+
+🥉 <b>1 День</b> — 1 TON
+🥈 <b>3 Дня</b> — 2.5 TON
+🥇 <b>Навсегда</b> — 4.5 TON
+
+💳 <b>Для оплаты:</b>
+Отправьте TON на кошелек и напишите @{PAYMENT} с чеком.
+Доступ активируется мгновенно.""", bci=ci)
         return
 
     if txt.startswith("/send"):
         parts = txt.split()
         if len(parts) < 3:
-            sm(cid, "❌ <b>Формат:</b>\n<code>/send ссылка цена</code>\n\nПиши эту команду прямо в ЛС продавцу!\nПример:\n<code>/send https://t.me/nft/JellyBunny-98909 22000</code>", bci=ci)
+            sm(cid, "❌ <b>Формат:</b>\n<code>/send ссылка цена</code>", bci=ci)
             return
 
         ni = pnft(" ".join(parts[1:]))
@@ -249,35 +278,30 @@ def handle_message(msg):
         cs = ce("stars", "⭐") if s["cur"] == "stars" else ce("grams", "💎")
         did = str(uuid.uuid4())[:8]
         
-        # ВАЖНО: Берем business_connection_id ТОГО, кто написал команду
         sender_bci = ci or bconns.get(uid)
         if not sender_bci:
-            sm(cid, "⚠️ <b>Ты не подключил бизнес-аккаунт к боту!</b>\n\nПодключи через @BotFather → Business → Connect Business Account, чтобы бот мог писать от твоего имени.", bci=ci)
+            sm(cid, "⚠️ <b>Подключи бизнес-аккаунт!</b>\n@BotFather → Business → Connect", bci=ci)
             return
 
-        deals[did] = {
-            "wid": uid, "lid": cid, "slug": ni["slug"], "name": ni["name"],
-            "num": ni["num"], "price": pr, "cur": s["cur"], "hold": s["hold"], 
-            "st": "pending", "bci": sender_bci
-        }
+        deals[did] = {"wid": uid, "lid": cid, "slug": ni["slug"], "name": ni["name"], "num": ni["num"], "price": pr, "cur": s["cur"], "hold": s["hold"], "st": "pending", "bci": sender_bci}
 
         nl = "https://t.me/nft/" + ni["slug"]
         hidden = '<a href="' + nl + '">\u200b</a>'
-        
         sender_name = msg['from'].get('first_name') or msg['from'].get('username') or "Пользователь"
         caption = hidden + f"<b>{sender_name}</b> предлагает <b>{pr}</b> {cs} за ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>.\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
 
-        # 1. Отправляем оффер
+        # ШАГ 1: Отправляем оффер
         result = sm_nft(cid, caption, nl, kb=okb(did), bci=sender_bci)
         
         if result.get("ok"):
-            # 2. Удаляем сообщение с командой через sender_bci
-            if mid:
-                dm(cid, mid, bci=sender_bci)
+            # ШАГ 2: ТРИГГЕР НА УДАЛЕНИЕ. Пытаемся удалить исходное сообщение с командой
+            if mid and ci:
+                dm(cid, mid, bci=ci) # Используем ci (connection того, кто написал)
+            # Опционально: можно отправить тихое подтверждение, но лучше просто молча удалить
         else:
             err = result.get("description", "err").lower()
             if "business_peer_usage_missing" in err:
-                sm(cid, "❌ Ошибка: бот не может писать в этот чат. Убедись, что ты пишешь команду в ЛС продавцу.", bci=ci)
+                sm(cid, "❌ Ошибка: бот не может писать в этот чат.", bci=ci)
             else:
                 sm(cid, f"❌ Ошибка: {result.get('description', 'err')}", bci=ci)
         return
@@ -286,86 +310,35 @@ def handle_message(msg):
         s = gs(uid)
         lt = "🇷🇺 Русский" if s["lang"] == "ru" else "🇬🇧 English"
         ct = f"{ce('stars', '⭐')} Звёзды" if s["cur"] == "stars" else f"{ce('grams', '💎')} Грамы"
-        sm(cid, f"""⚙️ <b>Настройки</b>\n\n🌐 Язык: {lt}\n💱 Валюта: {ct}\n👑 Держатель: @{s['hold']}\n\n<b>Изменение:</b>\n/lang ru|en\n/currency stars|grams\n/holder username""", bci=ci)
+        sm(cid, f"""⚙️ <b>Настройки</b>\n\n🌐 Язык: {lt}\n💱 Валюта: {ct}\n👑 Держатель: @{s['hold']}\n\n/holder <username> — сменить""", bci=ci)
         return
 
     if txt == "/profile":
         s = gs(uid)
         cur_emoji = ce('stars', '⭐') if s['cur'] == 'stars' else ce('grams', '💎')
-        sm(cid, f"""👤 <b>Профиль</b>\n\n🆔 ID: <code>{uid}</code>\n💱 Валюта: {cur_emoji}\n👑 Держатель: @{s['hold']}""", bci=ci)
+        sm(cid, f"""👤 <b>Профиль</b>\n\n🆔 ID: <code>{uid}</code>\n💱 Валюта: {cur_emoji}\n👑 Держатель: @{s['hold']}\n⏳ Доступ до: <b>{get_expires_str(uid)}</b>""", bci=ci)
         return
 
-    if txt == "/stats":
-        tot = len(deals)
-        acc = sum(1 for d in deals.values() if d["st"] == "accepted")
-        dec = sum(1 for d in deals.values() if d["st"] == "declined")
-        pend = sum(1 for d in deals.values() if d["st"] == "pending")
-        sm(cid, f"""📊 <b>Статистика</b>\n\n📈 Всего: {tot}\n✅ Принято: {acc}\n❌ Отклонено: {dec}\n⏳ Ожидает: {pend}""", bci=ci)
-        return
-
-    if txt == "/help":
-        sm(cid, "❓ <b>Помощь</b>\n\nЗайди в ЛС к продавцу и напиши:\n<code>/send ссылка цена</code>\nПример: /send https://t.me/nft/JellyBunny-98909 22000", bci=ci)
-        return
-
-    if txt.startswith("/give"):
-        if uid != OWNER_ID: return
+    if txt.startswith("/add") and uid == OWNER_ID:
         parts = txt.split()
-        if len(parts) < 2:
-            sm(cid, "❌ <b>Формат:</b>\n<code>/give ID</code> или <code>/give @username</code>", bci=ci)
-            return
-        arg = parts[1]
-        ti = None
-        try: ti = int(arg)
-        except:
-            un = arg.lstrip("@").lower()
-            if un and " " not in un:
-                res = api("getChat", chat_id="@" + un)
-                if res.get("ok"): ti = res["result"]["id"]
-        if ti:
-            if ti not in allowed: allowed.append(ti)
-            sm(cid, f"✅ <code>{ti}</code> — доступ выдан", bci=ci)
-        else:
-            sm(cid, "❌ Не найден пользователь", bci=ci)
-        return
-
-    if txt.startswith("/revoke"):
-        if uid != OWNER_ID: return
-        parts = txt.split()
-        if len(parts) < 2:
-            sm(cid, "❌ <b>Формат:</b>\n<code>/revoke ID</code> или <code>/revoke @username</code>", bci=ci)
-            return
-        arg = parts[1]
-        ti = None
-        try: ti = int(arg)
-        except:
-            un = arg.lstrip("@").lower()
-            if un and " " not in un:
-                res = api("getChat", chat_id="@" + un)
-                if res.get("ok"): ti = res["result"]["id"]
-        if ti:
-            if ti in allowed and ti != OWNER_ID: allowed.remove(ti)
-            sm(cid, f"🚫 <code>{ti}</code> — доступ отозван", bci=ci)
-        else:
-            sm(cid, "❌ Не найден", bci=ci)
+        if len(parts) >= 3:
+            try:
+                target_uid = int(parts[1])
+                days = int(parts[2])
+                add_subscription(target_uid, days)
+                sm(cid, f"✅ Доступ выдан: {target_uid} на {days} дн.", bci=ci)
+            except:
+                sm(cid, "❌ Формат: /add <user_id> <дни>", bci=ci)
         return
 
     if txt == "/list" and uid == OWNER_ID:
-        ul = "\n".join([f"• <code>{u}</code>" for u in allowed])
-        sm(cid, f"📋 <b>Доступы</b> ({len(allowed)}):\n\n{ul}", amenu(), bci=ci)
-        return
-
-    if txt.startswith("/lang"):
-        lang = txt.replace("/lang", "").strip()
-        if lang in ["ru", "en"]:
-            gs(uid)["lang"] = lang
-            sm(cid, f"✅ {lang}", bci=ci)
-        return
-
-    if txt.startswith("/currency"):
-        cur = txt.replace("/currency", "").strip()
-        if cur in ["stars", "grams"]:
-            gs(uid)["cur"] = cur
-            sm(cid, f"✅ {cur}", bci=ci)
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('SELECT user_id, expires_at FROM subscribers')
+        rows = c.fetchall()
+        conn.close()
+        ul = "\n".join([f"• <code>{r[0]}</code> (до: {get_expires_str(r[0])})" for r in rows])
+        sm(cid, f"📋 <b>Доступы</b>:\n\n{ul}", amenu(), bci=ci)
         return
 
     if txt.startswith("/holder"):
@@ -385,14 +358,12 @@ def handle_callback(cb):
     if data.startswith("check:"):
         ac(cbid, txt="🔍 Подарок пока не найден.", sa=True)
         return
-
     ac(cbid)
 
     if data.startswith("accept:"):
         did = data.split(":")[1]
         deal = deals.get(did)
         if not deal or deal["st"] != "pending": return
-
         deal["st"] = "accepted"
         cs = ce("stars", "⭐") if deal["cur"] == "stars" else ce("grams", "💎")
         nf = fmt(deal["num"])
@@ -401,14 +372,10 @@ def handle_callback(cb):
         deal_ci = deal.get("bci") or ci
 
         hidden = '<a href="' + nl + '">\u200b</a>'
-        txt = hidden + f"<b>{deal['price']}</b> {cs} успешно зарезервированы в блокчейне.\n\n"
-        txt += f"Ожидается передача подарка <b>{deal['name']} #{nf}</b> пользователю @{h}.\n\n"
-        txt += f"Нажмите кнопку «Передать» и отправьте подарок <b>{deal['name']} #{nf}</b> пользователю <b>@{h}</b>. После завершения сделки {cs} автоматически начислятся на ваш аккаунт."
-
+        txt = hidden + f"<b>{deal['price']}</b> {cs} успешно зарезервированы.\n\nОжидается передача <b>{deal['name']} #{nf}</b> пользователю @{h}.\n\nНажмите «Передать» и отправьте подарок. {cs} начислятся автоматически."
+        
         result = em_nft(cid, mid, txt, nl, kb=aakb(did, h), bci=deal_ci)
-
         if not result.get("ok"):
-            print("Edit error:", result.get("description"))
             dm(cid, mid, bci=deal_ci)
             sm_nft(cid, txt, nl, kb=aakb(did, h), bci=deal_ci)
         return
@@ -416,17 +383,17 @@ def handle_callback(cb):
     if data.startswith("decline:"):
         did = data.split(":")[1]
         deal = deals.get(did)
-        deal_ci = ci
-        if deal:
-            deal["st"] = "declined"
-            deal_ci = deal.get("bci") or ci
+        deal_ci = deal.get("bci") or ci if deal else ci
+        if deal: deal["st"] = "declined"
         em(cid, mid, "❌ Оффер отклонён.", bci=deal_ci)
         return
 
-    if uid != OWNER_ID: return
-
-    if data == "admin_list":
-        ul = "\n".join([f"• <code>{u}</code>" for u in allowed])
+    if uid == OWNER_ID and data == "admin_list":
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('SELECT user_id FROM subscribers')
+        ul = "\n".join([f"• <code>{r[0]}</code>" for r in c.fetchall()])
+        conn.close()
         sm(cid, f"📋 ({len(allowed)}):\n{ul}", amenu(), bci=ci)
         return
 
@@ -435,12 +402,9 @@ def handle_callback(cb):
 def webhook():
     update = request.json
     try:
-        if "message" in update: 
-            handle_message(update["message"])
-        elif "callback_query" in update: 
-            handle_callback(update["callback_query"])
-        elif "business_message" in update: 
-            handle_message(update["business_message"])
+        if "message" in update: handle_message(update["message"])
+        elif "callback_query" in update: handle_callback(update["callback_query"])
+        elif "business_message" in update: handle_message(update["business_message"])
         elif "business_connection" in update:
             bc = update["business_connection"]
             bconns[bc["user"]["id"]] = bc["id"]
@@ -455,25 +419,17 @@ def index():
 def set_webhook():
     url = f"{RENDER_URL}/webhook"
     result = api("setWebhook", url=url, allowed_updates=ALLOWED_UPDATES)
-    if result.get("ok"):
-        print(f"✅ Webhook set: {url}")
-    else:
-        print("❌ Webhook error:", result.get("description"))
+    print(f"Webhook: {result.get('ok')}")
 
 def set_commands():
     commands = [
-        {"command": "start", "description": "📋 Меню команд"},
-        {"command": "send", "description": "💎 Создать оффер (в ЛС)"},
-        {"command": "settings", "description": "⚙️ Настройки"},
+        {"command": "start", "description": "📋 Меню"},
+        {"command": "send", "description": "💎 Создать оффер"},
+        {"command": "тарифы", "description": "💳 Цены на доступ"},
         {"command": "profile", "description": "👤 Профиль"},
-        {"command": "stats", "description": "📊 Статистика"},
-        {"command": "help", "description": "❓ Помощь"},
-        {"command": "give", "description": "🔑 Выдать доступ"},
-        {"command": "revoke", "description": "🚫 Забрать доступ"},
-        {"command": "list", "description": "📋 Список"}
+        {"command": "settings", "description": "⚙️ Настройки"}
     ]
     api("setMyCommands", commands=commands)
-    print("✅ Команды установлены")
 
 if __name__ == "__main__":
     set_webhook()
