@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Full Stable DB + Tariffs + Auto-Delete (FIXED)
+Sulumi Team Bot — Fixed Whitelist + Owner Access
 """
 
 import os
@@ -42,8 +42,6 @@ def btn_url(text, url, emoji):
 
 # ==================== БАЗА ДАННЫХ (SQLite) ====================
 DB_PATH = "sulumi_subscribers.db"
-# ВАЖНО: Убраны минусы! В твоем сообщении это были маркеры списка, а не отрицательные числа.
-# Telegram User ID всегда положительные.
 INITIAL_SUBS = [869789263, 9065970214, 6421577466, 8350337709, 948464755, 9157210232]
 
 def init_db():
@@ -214,13 +212,15 @@ def handle_message(msg):
     if not txt.startswith("/"): 
         return
 
-    # 3. РАЗРЕШАЕМ /start и /тарифы ВСЕМ, иначе новые юзеры не увидят меню!
-    if txt in ["/start", "/тарифы", "/tariffs", "/help"]:
-        pass 
-    elif not is_allowed(uid) and uid != OWNER_ID:
+    # 3. WHITELIST: команды доступные ВСЕМ без проверки подписки
+    PUBLIC_COMMANDS = ["/start", "/тарифы", "/tariffs", "/help"]
+    
+    # Если команда НЕ в whitelist и пользователь НЕ владелец и НЕ подписчик — блокируем
+    if txt not in PUBLIC_COMMANDS and uid != OWNER_ID and not is_allowed(uid):
         sm(cid, f"🔒 <b>Доступ закрыт</b>\n\n💰 <b>Купите тариф у @{PAYMENT}</b>\n/тарифы — узнать цены", bci=ci)
         return
 
+    # 4. ОБРАБОТКА КОМАНД
     if txt == "/start":
         cmd_text = f"""✨ <b>Sulumi Team Bot</b>
 
