@@ -20,7 +20,7 @@ API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://sulumi-bot.onrender.com")
 
 # ==================== CUSTOM EMOJI ID ====================
-CUSTOM_EMOJI = {
+E = {
     "stars": "5958376256788502078",
     "grams": "6006074913742396956",
     "decline": "5778527486270770928",
@@ -29,9 +29,15 @@ CUSTOM_EMOJI = {
     "check": "6019523512908124649"
 }
 
-# ==================== PREMIUM EMOJI HELPER ====================
+# ==================== PREMIUM EMOJI HELPERS ====================
 def ce(name, fallback):
-    return f'<tg-emoji emoji-id="{CUSTOM_EMOJI[name]}">{fallback}</tg-emoji>'
+    return f'<tg-emoji emoji-id="{E[name]}">{fallback}</tg-emoji>'
+
+def btn(text, data, emoji):
+    return {"text": text, "callback_data": data, "custom_emoji_id": E[emoji]}
+
+def btn_url(text, url, emoji):
+    return {"text": text, "url": url, "custom_emoji_id": E[emoji]}
 
 # ==================== ХРАНИЛИЩА ====================
 deals = {}
@@ -132,47 +138,30 @@ def ac(cb, txt=None, sa=False):
 
 # ==================== КЛАВИАТУРЫ ====================
 def okb(did):
-    kb = {
+    return {
         "inline_keyboard": [
             [
-                {
-                    "text": " Отклонить",
-                    "callback_data": f"decline:{did}",
-                    "custom_emoji_id": str(CUSTOM_EMOJI["decline"])
-                },
-                {
-                    "text": "✓ Принять",
-                    "callback_data": f"accept:{did}",
-                    "custom_emoji_id": str(CUSTOM_EMOJI["accept"])
-                }
+                btn(" Отклонить", f"decline:{did}", "decline"),
+                btn(" Принять", f"accept:{did}", "accept")
             ]
         ]
     }
-    return kb
 
 def aakb(did, h):
-    clean_h = h.lstrip('@')
+    # Гарантированно убираем @ и пробелы для чистой ссылки tg://send_gift?to=username
+    clean_h = str(h).replace("@", "").strip()
     gift_link = f"tg://send_gift?to={clean_h}"
     
-    kb = {
+    return {
         "inline_keyboard": [
             [
-                {
-                    "text": "↗ Передать",
-                    "url": gift_link,
-                    "custom_emoji_id": str(CUSTOM_EMOJI["forward"])
-                }
+                btn_url(" Передать", gift_link, "forward")
             ],
             [
-                {
-                    "text": "✓ Проверить",
-                    "callback_data": f"check:{did}",
-                    "custom_emoji_id": str(CUSTOM_EMOJI["check"])
-                }
+                btn(" Проверить", f"check:{did}", "check")
             ]
         ]
     }
-    return kb
 
 def amenu():
     return {"inline_keyboard": [[{"text": "📋 Список доступов", "callback_data": "admin_list"}]]}
