@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Full Stable DB + Tariffs + Auto-Delete
+Sulumi Team Bot — Full Stable DB + Tariffs + Auto-Delete (FIXED)
 """
 
 import os
@@ -42,7 +42,9 @@ def btn_url(text, url, emoji):
 
 # ==================== БАЗА ДАННЫХ (SQLite) ====================
 DB_PATH = "sulumi_subscribers.db"
-INITIAL_SUBS = [869789263, -9065970214, -6421577466, -8350337709, -948464755, -9157210232]
+# ВАЖНО: Убраны минусы! В твоем сообщении это были маркеры списка, а не отрицательные числа.
+# Telegram User ID всегда положительные.
+INITIAL_SUBS = [869789263, 9065970214, 6421577466, 8350337709, 948464755, 9157210232]
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -212,8 +214,10 @@ def handle_message(msg):
     if not txt.startswith("/"): 
         return
 
-    # 3. Проверка доступа через БД
-    if not is_allowed(uid) and uid != OWNER_ID:
+    # 3. РАЗРЕШАЕМ /start и /тарифы ВСЕМ, иначе новые юзеры не увидят меню!
+    if txt in ["/start", "/тарифы", "/tariffs", "/help"]:
+        pass 
+    elif not is_allowed(uid) and uid != OWNER_ID:
         sm(cid, f"🔒 <b>Доступ закрыт</b>\n\n💰 <b>Купите тариф у @{PAYMENT}</b>\n/тарифы — узнать цены", bci=ci)
         return
 
@@ -282,11 +286,9 @@ def handle_message(msg):
         sender_name = msg['from'].get('first_name') or msg['from'].get('username') or "Пользователь"
         caption = hidden + f"<b>{sender_name}</b> предлагает <b>{pr}</b> {cs} за ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>.\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
 
-        # ШАГ 1: Отправляем оффер
         result = sm_nft(cid, caption, nl, kb=okb(did), bci=sender_bci)
         
         if result.get("ok"):
-            # ШАГ 2: ТРИГГЕР НА УДАЛЕНИЕ команды
             if mid and ci:
                 dm(cid, mid, bci=ci)
         else:
