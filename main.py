@@ -19,7 +19,6 @@ OWNER_ID = int(os.environ.get("OWNER_ID", "7092015279"))
 PAYMENT = os.environ.get("PAYMENT", "golda11123")
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://sulumi-bot.onrender.com")
-WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
 
 # ==================== CUSTOM EMOJI ID ====================
 
@@ -144,31 +143,35 @@ def ac(cb, txt=None, sa=False):
 # ==================== КЛАВИАТУРЫ ====================
 
 def okb(did):
-    decline_kwargs = {"callback_data": "decline:" + did}
-    if CUSTOM_EMOJI["decline"]:
-        decline_kwargs["custom_emoji_id"] = CUSTOM_EMOJI["decline"]
-
-    accept_kwargs = {"callback_data": "accept:" + did}
-    if CUSTOM_EMOJI["accept"]:
-        accept_kwargs["custom_emoji_id"] = CUSTOM_EMOJI["accept"]
-
     return {"inline_keyboard": [[
-        {"text": " Отклонить", **decline_kwargs},
-        {"text": "✓ Принять", **accept_kwargs}
+        {
+            "text": " Отклонить",
+            "callback_data": "decline:" + did,
+            "custom_emoji_id": CUSTOM_EMOJI["decline"]
+        },
+        {
+            "text": "✓ Принять",
+            "callback_data": "accept:" + did,
+            "custom_emoji_id": CUSTOM_EMOJI["accept"]
+        }
     ]]}
 
 def aakb(did, h):
-    forward_kwargs = {"url": "https://t.me/" + h}
-    if CUSTOM_EMOJI["forward"]:
-        forward_kwargs["custom_emoji_id"] = CUSTOM_EMOJI["forward"]
-
-    check_kwargs = {"callback_data": "check:" + did}
-    if CUSTOM_EMOJI["check"]:
-        check_kwargs["custom_emoji_id"] = CUSTOM_EMOJI["check"]
-
     return {"inline_keyboard": [
-        [{"text": "↗ Передать", **forward_kwargs}],
-        [{"text": "✓ Проверить", **check_kwargs}]
+        [
+            {
+                "text": "↗ Передать",
+                "url": "https://t.me/" + h,
+                "custom_emoji_id": CUSTOM_EMOJI["forward"]
+            }
+        ],
+        [
+            {
+                "text": "✓ Проверить",
+                "callback_data": "check:" + did,
+                "custom_emoji_id": CUSTOM_EMOJI["check"]
+            }
+        ]
     ]}
 
 def amenu():
@@ -471,7 +474,6 @@ def handle_callback(cb):
         nl = "https://t.me/nft/" + deal["slug"]
         deal_ci = deal.get("bci") or ci
 
-        # СКРЫТАЯ ССЫЛКА ДЛЯ ПРЕВЬЮ
         hidden = '<a href="' + nl + '">\u200b</a>'
         txt = hidden + f"<b>{deal['price']}</b> {cs} успешно зарезервированы в блокчейне.\n\n"
         txt += f"Ожидается передача подарка <b>{deal['name']} #{nf}</b> пользователю @{h}.\n\n"
@@ -505,7 +507,7 @@ def handle_callback(cb):
 
 # ==================== WEBHOOK ====================
 
-@app.route(f"/webhook/{BOT_TOKEN}", methods=["POST"])
+@app.route("/webhook", methods=["POST"])
 def webhook():
     update = request.json
     try:
@@ -527,7 +529,7 @@ def index():
     return "✅ Sulumi Team Bot is running"
 
 def set_webhook():
-    url = f"{RENDER_URL}/webhook/{BOT_TOKEN}"
+    url = f"{RENDER_URL}/webhook"
     result = api("setWebhook", url=url, allowed_updates=ALLOWED_UPDATES)
     if result.get("ok"):
         print(f"✅ Webhook set: {url}")
