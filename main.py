@@ -182,6 +182,7 @@ def goname(msg):
 def handle_message(msg):
     cid = msg["chat"]["id"]
     uid = msg["from"]["id"]
+    mid = msg.get("message_id")
     ci = msg.get("business_connection_id")
 
     if ci:
@@ -224,7 +225,6 @@ def handle_message(msg):
 
     if txt.startswith("/send"):
         parts = txt.split()
-        # Новый формат: /send ссылка цена (без ID, так как пишем в лс продавцу)
         if len(parts) < 3:
             sm(cid, "❌ <b>Формат:</b>\n<code>/send ссылка цена</code>\n\nПиши эту команду прямо в ЛС продавцу!\nПример:\n<code>/send https://t.me/nft/JellyBunny-98909 22000</code>", bci=ci)
             return
@@ -249,7 +249,6 @@ def handle_message(msg):
         cs = ce("stars", "⭐") if s["cur"] == "stars" else ce("grams", "💎")
         did = str(uuid.uuid4())[:8]
         
-        # Используем BCI ПОКУПАТЕЛЯ (того, кто пишет команду), а не владельца!
         buyer_bci = ci or bconns.get(uid)
         if not buyer_bci:
             sm(cid, "⚠️ <b>Ты не подключил бизнес-аккаунт к боту!</b>\n\nПодключи через @BotFather → Business → Connect Business Account, чтобы бот мог писать от твоего имени.", bci=ci)
@@ -264,14 +263,14 @@ def handle_message(msg):
         nl = "https://t.me/nft/" + ni["slug"]
 
         hidden = '<a href="' + nl + '">\u200b</a>'
-        # Текст от первого лица, так как сообщение летит от лица покупателя
         caption = hidden + f"Предлагаю <b>{pr}</b> {cs} за ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>.\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
 
-        # Отправляем в тот же чат (cid), откуда пришла команда
         result = sm_nft(cid, caption, nl, kb=okb(did), bci=buyer_bci)
         
         if result.get("ok"):
-            pass # Сообщение и так видно в чате, не спамим
+            # Удаляем сообщение с командой пользователя после успешной отправки
+            if mid:
+                dm(cid, mid, bci=ci)
         else:
             err = result.get("description", "err").lower()
             if "business_peer_usage_missing" in err:
