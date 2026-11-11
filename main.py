@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Final DB + Tariffs + Auto-Delete Version
+Sulumi Team Bot — Full Stable DB + Tariffs + Auto-Delete
 """
 
 import os
@@ -49,15 +49,11 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS subscribers (
                  user_id INTEGER PRIMARY KEY,
-                 expires_at REAL)''') # -1.0 означает "навсегда"
+                 expires_at REAL)''')
     
-    # Добавляем владельца навсегда
     c.execute('INSERT OR IGNORE INTO subscribers (user_id, expires_at) VALUES (?, ?)', (OWNER_ID, -1.0))
-    
-    # Добавляем начальных подписчиков (навсегда, если их еще нет)
     for uid in INITIAL_SUBS:
         c.execute('INSERT OR IGNORE INTO subscribers (user_id, expires_at) VALUES (?, ?)', (uid, -1.0))
-        
     conn.commit()
     conn.close()
 
@@ -91,10 +87,9 @@ def get_expires_str(uid):
         return "Навсегда"
     return time.strftime("%d.%m.%Y %H:%M", time.localtime(row[0]))
 
-# Инициализируем БД при старте
 init_db()
 
-# ==================== ХРАНИЛИЩА (Runtime) ====================
+# ==================== ХРАНИЛИЩА ====================
 deals = {}
 users = {}
 bconns = {}
@@ -144,9 +139,7 @@ def sm(cid, txt, kb=None, bci=None):
 
 def sm_nft(cid, txt, nft_url, kb=None, bci=None):
     d = {
-        "chat_id": cid,
-        "text": txt,
-        "parse_mode": "HTML",
+        "chat_id": cid, "text": txt, "parse_mode": "HTML",
         "link_preview_options": {"is_disabled": False, "show_above_text": True, "url": nft_url}
     }
     if kb: d["reply_markup"] = kb
@@ -215,12 +208,12 @@ def handle_message(msg):
             sm(cid, "❌ Неверный формат. Напишите username без @", bci=ci)
         return
 
-    # 2. ИГНОРИРОВАНИЕ обычных сообщений (никаких "ало")
+    # 2. ИГНОРИРОВАНИЕ обычных сообщений (бот молчит)
     if not txt.startswith("/"): 
         return
 
     # 3. Проверка доступа через БД
-    if txt.startswith("/") and not is_allowed(uid) and uid != OWNER_ID:
+    if not is_allowed(uid) and uid != OWNER_ID:
         sm(cid, f"🔒 <b>Доступ закрыт</b>\n\n💰 <b>Купите тариф у @{PAYMENT}</b>\n/тарифы — узнать цены", bci=ci)
         return
 
@@ -248,8 +241,7 @@ def handle_message(msg):
 🥇 <b>Навсегда</b> — 4.5 TON
 
 💳 <b>Для оплаты:</b>
-Отправьте TON на кошелек и напишите @{PAYMENT} с чеком.
-Доступ активируется мгновенно.""", bci=ci)
+Отправьте TON на кошелек и напишите @{PAYMENT} с чеком.""", bci=ci)
         return
 
     if txt.startswith("/send"):
@@ -294,10 +286,9 @@ def handle_message(msg):
         result = sm_nft(cid, caption, nl, kb=okb(did), bci=sender_bci)
         
         if result.get("ok"):
-            # ШАГ 2: ТРИГГЕР НА УДАЛЕНИЕ. Пытаемся удалить исходное сообщение с командой
+            # ШАГ 2: ТРИГГЕР НА УДАЛЕНИЕ команды
             if mid and ci:
-                dm(cid, mid, bci=ci) # Используем ci (connection того, кто написал)
-            # Опционально: можно отправить тихое подтверждение, но лучше просто молча удалить
+                dm(cid, mid, bci=ci)
         else:
             err = result.get("description", "err").lower()
             if "business_peer_usage_missing" in err:
@@ -394,7 +385,7 @@ def handle_callback(cb):
         c.execute('SELECT user_id FROM subscribers')
         ul = "\n".join([f"• <code>{r[0]}</code>" for r in c.fetchall()])
         conn.close()
-        sm(cid, f"📋 ({len(allowed)}):\n{ul}", amenu(), bci=ci)
+        sm(cid, f"📋 Список:\n{ul}", amenu(), bci=ci)
         return
 
 # ==================== WEBHOOK ====================
@@ -419,7 +410,7 @@ def index():
 def set_webhook():
     url = f"{RENDER_URL}/webhook"
     result = api("setWebhook", url=url, allowed_updates=ALLOWED_UPDATES)
-    print(f"Webhook: {result.get('ok')}")
+    print(f"Webhook set: {result.get('ok')}")
 
 def set_commands():
     commands = [
