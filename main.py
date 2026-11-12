@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — New Bot Credentials + New Payment
+Sulumi Team Bot — Single Stable Offer Text
 """
 
 import os
@@ -10,16 +10,15 @@ import sqlite3
 import requests
 from collections import deque
 from flask import Flask, request, jsonify
-import random
 
 app = Flask(__name__)
 
 # ==================== КОНФИГ ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "9087583806:AAE1nylRFVLF54ppc6EQZJyDE8vQwhN6bYY")
 OWNER_ID = int(os.environ.get("OWNER_ID", "9207314182"))
-PAYMENT = os.environ.get("PAYMENT", "pantera138382") # <-- ОБНОВЛЁННЫЙ ЮЗЕРНЕЙМ
+PAYMENT = os.environ.get("PAYMENT", "pantera138382")
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://sulumi-bot.onrender.com")
+RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://offera-5uqe.onrender.com")
 
 print(f"=== BOT STARTING ===")
 print(f"OWNER_ID: {OWNER_ID}")
@@ -186,15 +185,6 @@ def pnft(t):
     np2, num = s.rsplit("-", 1)
     gn = re.sub(r'([a-z])([A-Z])', r'\1 \2', np2)
     return {"slug": s, "name": gn, "num": num, "nfmt": fmt(num)}
-
-# ==================== РАНДОМИЗАЦИЯ ТЕКСТА (АНТИ-СПАМ) ====================
-def get_random_offer_text(sender_name, pr, cs, ni_name, ni_nfmt):
-    templates = [
-        f"Привет! 👋 <b>{sender_name}</b> предлагает <b>{pr}</b> {cs} за твой подарок <b>{ni_name} #{ni_nfmt}</b>.",
-        f"Салют! <b>{sender_name}</b> готов забрать <b>{ni_name} #{ni_nfmt}</b> за <b>{pr}</b> {cs}. Интересно?",
-        f"Здарова! Даю <b>{pr}</b> {cs} за <b>{ni_name} #{ni_nfmt}</b> от <b>{sender_name}</b>. Жду решения."
-    ]
-    return random.choice(templates) + "\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
 
 # ==================== ОБРАБОТКА СООБЩЕНИЙ ====================
 def process_msg(msg):
@@ -367,7 +357,8 @@ def process_msg(msg):
             hidden = '<a href="' + nl + '">\u200b</a>'
             sender_name = from_user.get('first_name') or from_user.get('username') or "Пользователь"
             
-            caption = hidden + get_random_offer_text(sender_name, pr, cs, ni['name'], ni['nfmt'])
+            # ЕДИНЫЙ СТАБИЛЬНЫЙ ТЕКСТ ОФФЕРА (как был изначально)
+            caption = hidden + f"<b>{sender_name}</b> предлагает <b>{pr}</b> {cs} за ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>.\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
             
             result = sm_nft(cid, caption, nl, kb=okb(did), bci=sender_bci)
             
