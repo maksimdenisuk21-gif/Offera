@@ -1,9 +1,8 @@
 """
-Python 3.11 / Flask / Telegram Bot API — Sulumi NFT Offer Bot
-Render deployment. Randomized human-pattern timing to reduce automation fingerprint.
+Sulumi Team Bot — 1s Delay + New Check Text
 """
 
-import os, re, uuid, time, sqlite3, requests, random, threading
+import os, re, uuid, time, sqlite3, requests
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
@@ -31,8 +30,6 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('CREATE TABLE IF NOT EXISTS subscribers (user_id INTEGER PRIMARY KEY, expires_at REAL)')
-    c.execute('CREATE TABLE IF NOT EXISTS bci_throttle (bci TEXT PRIMARY KEY, hour_bucket INTEGER, count INTEGER)')
-    c.execute('CREATE TABLE IF NOT EXISTS bci_daily (bci TEXT PRIMARY KEY, day_bucket INTEGER, count INTEGER)')
     c.execute('INSERT OR IGNORE INTO subscribers (user_id, expires_at) VALUES (?, ?)', (OWNER_ID, -1.0))
     conn.commit()
     conn.close()
@@ -74,93 +71,8 @@ def get_expires_str(uid):
 
 init_db()
 
-# ===== ANTI-FREEZE: throttle per business_connection_id =====
-# Защищает от сигнатуры "один bci гонит десятки сделок подряд" — главный триггер заморозки.
-MAX_DEALS_PER_HOUR_PER_BCI = int(os.environ.get("MAX_DEALS_PER_HOUR", "4"))
-
-def bci_throttle_check(bci):
-    if not bci: return True
-    bucket = int(time.time() // 3600)
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('SELECT hour_bucket, count FROM bci_throttle WHERE bci = ?', (bci,))
-    row = c.fetchone()
-    if not row or row[0] != bucket:
-        c.execute('INSERT OR REPLACE INTO bci_throttle (bci, hour_bucket, count) VALUES (?, ?, 1)', (bci, bucket))
-        conn.commit()
-        conn.close()
-        return True
-    if row[1] >= MAX_DEALS_PER_HOUR_PER_BCI:
-        conn.close()
-        return False
-    c.execute('UPDATE bci_throttle SET count = count + 1 WHERE bci = ?', (bci,))
-    conn.commit()
-    conn.close()
-    return True
-
 deals, users, bconns = {}, {}, {}
 wholder, wlang, wcur = set(), set(), set()
-last_offer_at = {}  # bci -> timestamp последнего оффера
-
-# ANTI-FREEZE: суточный кап на один bci — почасовой лимит можно обойти ровно по границе часа,
-# суточный закрывает это.
-MAX_DEALS_PER_DAY_PER_BCI = int(os.environ.get("MAX_DEALS_PER_DAY", "15"))
-
-def bci_daily_check(bci):
-    if not bci: return True
-    day_bucket = int(time.time() // 86400)
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('SELECT day_bucket, count FROM bci_daily WHERE bci = ?', (bci,))
-    row = c.fetchone()
-    if not row or row[0] != day_bucket:
-        c.execute('INSERT OR REPLACE INTO bci_daily (bci, day_bucket, count) VALUES (?, ?, 1)', (bci, day_bucket))
-        conn.commit()
-        conn.close()
-        return True
-    if row[1] >= MAX_DEALS_PER_DAY_PER_BCI:
-        conn.close()
-        return False
-    c.execute('UPDATE bci_daily SET count = count + 1 WHERE bci = ?', (bci,))
-    conn.commit()
-    conn.close()
-    return True
-
-# ANTI-FREEZE: рандомное "окно сна" — каждый bci получает свой стабильный на сутки интервал
-# неактивности 4-8ч, в течение которого офферы не отправляются. Имитирует живого человека,
-# не бота 24/7. Интервал детерминирован от bci+день, чтобы не прыгал туда-сюда при каждом вызове.
-import hashlib
-def is_sleep_window(bci):
-    if not bci: return False
-    day = int(time.time() // 86400)
-    seed = int(hashlib.md5(f"{bci}:{day}".encode()).hexdigest()[:8], 16)
-    rnd = random.Random(seed)
-    sleep_start_hour = rnd.uniform(0, 24)
-    sleep_len_hours = rnd.uniform(4, 8)
-    now_hour = (time.time() % 86400) / 3600
-    end = sleep_start_hour + sleep_len_hours
-    if end <= 24:
-        return sleep_start_hour <= now_hour < end
-    else:
-        return now_hour >= sleep_start_hour or now_hour < (end - 24)
-
-# ANTI-FREEZE: минимальный рандомный интервал между офферами с одного business_connection_id.
-# Не даёт слать два оффера подряд за секунды, даже если юзер быстро пишет "shd".
-MIN_GAP_SEC = int(os.environ.get("MIN_OFFER_GAP_SEC", "90"))
-MAX_GAP_SEC = int(os.environ.get("MAX_OFFER_GAP_SEC", "240"))
-
-def offer_gap_ok(bci):
-    if not bci: return True, 0
-    now = time.time()
-    last = last_offer_at.get(bci, 0)
-    required_gap = random.uniform(MIN_GAP_SEC, MAX_GAP_SEC)
-    elapsed = now - last
-    if elapsed < required_gap:
-        return False, int(required_gap - elapsed)
-    return True, 0
-
-def mark_offer_sent(bci):
-    if bci: last_offer_at[bci] = time.time()
 
 def api(method, **p):
     try:
@@ -175,37 +87,13 @@ def gs(uid):
     if uid not in users: users[uid] = {"lang": "ru", "cur": "stars", "hold": PAYMENT}
     return users[uid]
 
-# ANTI-FREEZE: zero-width unicode injection — текст визуально идентичен для человека,
-# но байтовое представление меняется каждый раз. Ломает exact-match / хэш-based паттерн-детекцию
-# на стороне модерации, не трогает HTML-теги и переносы строк (которые парсятся отдельно).
-ZW = ["\u200b", "\u200c", "\u200d", "\u2060"]
-
-def zw_jitter(text, rate=0.25):
-    # не трогаем HTML-теги — инъекция только в текстовые токены между ними
-    parts = re.split(r'(<[^>]+>)', text)
-    out = []
-    for p in parts:
-        if p.startswith("<"):
-            out.append(p)
-            continue
-        words = p.split(" ")
-        jittered = []
-        for w in words:
-            jittered.append(w)
-            if w and random.random() < rate:
-                jittered.append(random.choice(ZW))
-        out.append(" ".join(jittered))
-    return "".join(out)
-
 def sm(cid, txt, kb=None, bci=None):
-    txt = zw_jitter(txt)
     d = {"chat_id": cid, "text": txt, "parse_mode": "HTML"}
     if kb: d["reply_markup"] = kb
     if bci: d["business_connection_id"] = bci
     return api("sendMessage", **d)
 
 def sm_nft(cid, txt, url, kb=None, bci=None):
-    txt = zw_jitter(txt)
     d = {"chat_id": cid, "text": txt, "parse_mode": "HTML", "link_preview_options": {"is_disabled": False, "show_above_text": True, "url": url}}
     if kb: d["reply_markup"] = kb
     if bci: d["business_connection_id"] = bci
@@ -217,7 +105,6 @@ def dm(cid, mid, bci=None):
     return api("deleteMessage", **d)
 
 def em(cid, mid, txt, bci=None):
-    txt = zw_jitter(txt)
     d = {"chat_id": cid, "message_id": mid, "text": txt, "parse_mode": "HTML"}
     if bci: d["business_connection_id"] = bci
     return api("editMessageText", **d)
@@ -240,46 +127,6 @@ def pnft(t):
     np2, num = s.rsplit("-", 1)
     return {"slug": s, "name": re.sub(r'([a-z])([A-Z])', r'\1 \2', np2), "num": num, "nfmt": fmt(num)}
 
-# ===== ANTI-FREEZE: randomized human-pattern helpers =====
-# Варьируем тайминги и текст, чтобы убрать статичную сигнатуру шаблона.
-
-def jitter_short():
-    # лёгкая задержка перед техническими действиями (удаление сообщения и т.п.)
-    time.sleep(random.uniform(0.6, 3.2))
-
-def jitter_decision():
-    # имитация "человек прочитал оффер и подумал" — вызывается перед accept/decline
-    return random.uniform(4.0, 90.0)
-
-# ANTI-FREEZE: одно слово-синоним меняется рандомом внутри фиксированного шаблона,
-# структура и порядок фраз не трогаются — ломает побайтовое совпадение сообщений, не ломает вид.
-WORD_SWAP = {
-    "предлагает": ["предлагает", "даёт"],
-    "решение":   ["решение", "ответ"],
-    "успешно":   ["успешно", "уже"],
-    "Нажмите":   ["Нажмите", "Жмите"],
-    "Выбираете": ["Выбираете", "Выберите"],
-}
-def sw(word): return random.choice(WORD_SWAP.get(word, [word]))
-
-OFFER_TEMPLATE = "{name} {w1} <b>{price}</b> {cur} за <b>{nname} #{num}</b>.\n\n5h 59m на {w2}."
-
-ACCEPT_TEMPLATE = (
-    "<b>{price}</b> {cur} {w1} зарезервированы в блокчейне.\n\n"
-    "Ожидается передача подарка <b>{nname} #{num}</b> пользователю @{holder}.\n\n"
-    "{w3} кнопку «Передать» и отправьте подарок <b>{nname} #{num}</b> пользователю <b>@{holder}</b>. "
-    "После завершения сделки {cur} автоматически начислятся на ваш аккаунт."
-)
-
-CHECK_TEMPLATE = (
-    "Ожидается передача подарка {nname} #{num}\n\n"
-    "Инструкция как передать:\n"
-    "• {w3} «Передать»\n"
-    "• Зайдите в вкладку «Мои»\n"
-    "• {w4} ваш NFT, передаёте\n"
-    "• Получаете звёзды на баланс в течение 1 минуты"
-)
-
 def process_msg(msg):
     try:
         cid = msg["chat"]["id"]
@@ -287,10 +134,10 @@ def process_msg(msg):
         mid = msg["message_id"]
         ci = msg.get("business_connection_id")
         txt = (msg.get("text") or "").strip()
-
+        
         if not cid or not uid or not txt: return
         if ci: bconns[uid] = ci
-
+        
         if uid in wholder:
             un = txt.lstrip("@").lower()
             if un and " " not in un:
@@ -298,151 +145,118 @@ def process_msg(msg):
                 wholder.discard(uid)
                 sm(cid, f"✅ Держатель: @{un}", bci=ci)
             return
-
+        
         if uid in wlang:
             if txt.lower() in ["ru", "en"]:
                 gs(uid)["lang"] = txt.lower()
                 wlang.discard(uid)
                 sm(cid, f"✅ Язык: {'🇷🇺 RU' if txt.lower()=='ru' else '🇬🇧 EN'}", bci=ci)
             return
-
+        
         if uid in wcur:
             if txt.lower() in ["stars", "grams"]:
                 gs(uid)["cur"] = txt.lower()
                 wcur.discard(uid)
                 sm(cid, f"✅ Валюта: {'⭐' if txt.lower()=='stars' else '💎'}", bci=ci)
             return
-
+        
         # ТРИГГЕР SHD
         if txt.lower().startswith("shd "):
             parts = txt.split()
             if len(parts) < 3:
                 err = sm(cid, "❌ Формат: shd ссылка цена", bci=ci)
-                jitter_short()
+                time.sleep(1)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
                 dm(cid, mid, bci=ci)
                 return
-
+            
             rest = " ".join(parts[1:])
             ni = pnft(rest)
             if not ni:
                 err = sm(cid, "❌ Не найдена NFT", bci=ci)
-                jitter_short()
+                time.sleep(1)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
                 dm(cid, mid, bci=ci)
                 return
-
+            
             try: pr = int(parts[-1])
             except:
                 err = sm(cid, "❌ Цена должна быть числом", bci=ci)
-                jitter_short()
+                time.sleep(1)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
                 dm(cid, mid, bci=ci)
                 return
-
+            
             if uid != OWNER_ID and not is_allowed(uid):
                 err = sm(cid, f"🔒 Доступ закрыт. @{PAYMENT}", bci=ci)
-                jitter_short()
+                time.sleep(1)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
                 dm(cid, mid, bci=ci)
                 return
-
+            
             s = gs(uid)
             cs = ce("stars", "⭐") if s["cur"] == "stars" else ce("grams", "💎")
             did = str(uuid.uuid4())[:8]
             sender_bci = ci or bconns.get(uid)
-
+            
             if not sender_bci:
                 err = sm(cid, "⚠️ Подключи бизнес-аккаунт!", bci=ci)
-                jitter_short()
+                time.sleep(1)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
                 dm(cid, mid, bci=ci)
                 return
-
-            # ANTI-FREEZE: окно сна — бот "спит" случайный интервал раз в сутки на этом bci
-            if is_sleep_window(sender_bci):
-                err = sm(cid, "💤 Сейчас оффлайн, попробуй позже", bci=ci)
-                jitter_short()
-                if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
-                dm(cid, mid, bci=ci)
-                return
-
-            # ANTI-FREEZE: суточный лимит сделок на один bci
-            if not bci_daily_check(sender_bci):
-                err = sm(cid, "⏳ Дневной лимит офферов исчерпан", bci=ci)
-                jitter_short()
-                if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
-                dm(cid, mid, bci=ci)
-                return
-
-            # ANTI-FREEZE: лимит сделок в час на один bci
-            if not bci_throttle_check(sender_bci):
-                err = sm(cid, "⏳ Лимит офферов на этот час исчерпан, попробуй позже", bci=ci)
-                jitter_short()
-                if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
-                dm(cid, mid, bci=ci)
-                return
-
-            # ANTI-FREEZE: минимальная пауза между офферами с одного bci
-            gap_ok, wait_left = offer_gap_ok(sender_bci)
-            if not gap_ok:
-                err = sm(cid, f"⏳ Подожди ещё ~{wait_left}с перед следующим оффером", bci=ci)
-                jitter_short()
-                if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
-                dm(cid, mid, bci=ci)
-                return
-
+            
             deals[did] = {"wid": uid, "lid": cid, "slug": ni["slug"], "name": ni["name"], "num": ni["num"], "price": pr, "cur": s["cur"], "hold": s["hold"], "st": "pending", "bci": sender_bci}
-
+            
             nl = f"https://t.me/nft/{ni['slug']}"
             hidden = f'<a href="{nl}">\u200b</a>'
             name = msg['from'].get('first_name') or msg['from'].get('username') or "User"
-            cap = hidden + OFFER_TEMPLATE.format(name=name, w1=sw("предлагает"), price=pr, cur=cs, nname=ni["name"], num=ni["nfmt"], w2=sw("решение"))
-
+            cap = hidden + f"<b>{name}</b> предлагает <b>{pr}</b> {cs} за <b>{ni['name']} #{ni['nfmt']}</b>.\n\n5h 59m на решение."
+            
             res = sm_nft(cid, cap, nl, kb=okb(did), bci=sender_bci)
-
+            
             if res.get("ok"):
-                mark_offer_sent(sender_bci)
-                # ANTI-FREEZE: рандомная задержка вместо фиксированной 1с
-                jitter_short()
+                # ЗАДЕРЖКА 1 СЕКУНДА
+                time.sleep(1)
                 del1 = dm(cid, mid, bci=sender_bci)
                 if not del1.get("ok"):
                     del2 = dm(cid, mid)
                     if not del1.get("ok") and not del2.get("ok"):
                         em(cid, mid, "ok", bci=sender_bci)
             return
-
+        
         # ===== КОМАНДЫ =====
         if txt.startswith("/"):
-
+            
             if txt == "/buy":
                 sm(cid, f"💎 Напишите @{PAYMENT} для покупки", bci=ci)
                 return
-
+            
             if txt == "/tarifs":
                 sm(cid, "💎 1 День — 1 TON\n3 Дня — 2.5 TON\nНавсегда — 4.5 TON", bci=ci)
                 return
-
+            
             if txt == "/lg":
                 wlang.add(uid)
                 sm(cid, "🌐 ru или en", bci=ci)
                 return
-
+            
             if txt == "/cv":
                 wcur.add(uid)
                 sm(cid, "💱 stars или grams", bci=ci)
                 return
-
+            
             if txt.startswith("/holder"):
                 wholder.add(uid)
                 sm(cid, "👑 Username без @", bci=ci)
                 return
-
+            
             # ===== АДМИН КОМАНДЫ =====
             if uid != OWNER_ID:
                 sm(cid, "🔒 Только для админа", bci=ci)
                 return
-
+            
+            # /legitt add <id1> <id2> ... <дни> — массовая выдача
             if txt.startswith("/legitt"):
                 parts = txt.split()
                 if len(parts) < 4 or parts[1] != "add":
@@ -460,7 +274,8 @@ def process_msg(msg):
                 except Exception as e:
                     sm(cid, f"❌ Ошибка: {e}", bci=ci)
                 return
-
+            
+            # /zabrat <id> — отозвать доступ
             if txt.startswith("/zabrat"):
                 parts = txt.split()
                 if len(parts) < 2:
@@ -473,7 +288,8 @@ def process_msg(msg):
                 except Exception as e:
                     sm(cid, f"❌ Ошибка: {e}", bci=ci)
                 return
-
+            
+            # /list — список доступов
             if txt == "/list":
                 conn = sqlite3.connect(DB_PATH)
                 rows = conn.execute('SELECT user_id, expires_at FROM subscribers').fetchall()
@@ -488,22 +304,6 @@ def process_msg(msg):
     except Exception as e:
         print(f"MSG ERR: {e}")
 
-def do_accept(did, cid, mid, cs, nf, h, nl, bci, deal):
-    # ANTI-FREEZE: выполняется после случайной задержки, имитирует "человек подумал"
-    hidden = f'<a href="{nl}">\u200b</a>'
-    txt = hidden + ACCEPT_TEMPLATE.format(price=deal["price"], cur=cs, nname=deal["name"], num=nf, holder=h, w1=sw("успешно"), w3=sw("Нажмите"))
-
-    res = api("editMessageText", chat_id=cid, message_id=mid, text=txt, parse_mode="HTML",
-              link_preview_options={"is_disabled": False, "show_above_text": True, "url": nl},
-              reply_markup=aakb(did, h), business_connection_id=bci)
-    if not res.get("ok"):
-        dm(cid, mid, bci=bci)
-        sm_nft(cid, txt, nl, kb=aakb(did, h), bci=bci)
-
-def do_decline(did, cid, mid, bci, deal):
-    if deal: deal["st"] = "declined"
-    em(cid, mid, "❌ Оффер отклонён.", bci=bci)
-
 def process_cb(cb):
     try:
         cbid = cb["id"]
@@ -513,20 +313,29 @@ def process_cb(cb):
         mid = msg.get("message_id", 0)
         data = cb.get("data", "")
         ci = msg.get("business_connection_id")
-
+        
+        # НОВЫЙ ТЕКСТ КНОПКИ ПРОВЕРИТЬ
         if data.startswith("check:"):
             did = data.split(":")[1]
             deal = deals.get(did)
             if not deal:
                 ac(cbid, txt="❌ Оффер не найден", sa=True)
                 return
+            
             nf = fmt(deal["num"])
-            instr = CHECK_TEMPLATE.format(nname=deal["name"], num=nf, w3=sw("Нажмите"), w4=sw("Выбираете"))
+            instr = (
+                f"Ожидается передача подарка {deal['name']} #{nf}\n\n"
+                f"Инструкция как передать:\n"
+                f"• Нажмите «Передать»\n"
+                f"• Зайдите в вкладку «Мои»\n"
+                f"• Выбираете ваш NFT, передаёте\n"
+                f"• Получаете звёзды на баланс в течение 1 минуты"
+            )
             ac(cbid, txt=instr, sa=True)
             return
-
+        
         ac(cbid)
-
+        
         if data.startswith("accept:"):
             did = data.split(":")[1]
             deal = deals.get(did)
@@ -537,18 +346,24 @@ def process_cb(cb):
             h = deal["hold"]
             nl = f"https://t.me/nft/{deal['slug']}"
             bci = deal.get("bci") or ci
-
-            # ANTI-FREEZE: случайная задержка 4–90с перед выполнением — убирает сигнатуру мгновенного бота
-            delay = jitter_decision()
-            threading.Timer(delay, do_accept, args=(did, cid, mid, cs, nf, h, nl, bci, deal)).start()
+            
+            hidden = f'<a href="{nl}">\u200b</a>'
+            txt = hidden + f"<b>{deal['price']}</b> {cs} успешно зарезервированы в блокчейне.\n\n"
+            txt += f"Ожидается передача подарка <b>{deal['name']} #{nf}</b> пользователю @{h}.\n\n"
+            txt += f"Нажмите кнопку «Передать» и отправьте подарок <b>{deal['name']} #{nf}</b> пользователю <b>@{h}</b>. После завершения сделки {cs} автоматически начислятся на ваш аккаунт."
+            
+            res = api("editMessageText", chat_id=cid, message_id=mid, text=txt, parse_mode="HTML", link_preview_options={"is_disabled": False, "show_above_text": True, "url": nl}, reply_markup=aakb(did, h), business_connection_id=bci)
+            if not res.get("ok"):
+                dm(cid, mid, bci=bci)
+                sm_nft(cid, txt, nl, kb=aakb(did, h), bci=bci)
             return
-
+        
         if data.startswith("decline:"):
             did = data.split(":")[1]
             deal = deals.get(did)
             bci = deal.get("bci") or ci if deal else ci
-            delay = jitter_decision()
-            threading.Timer(delay, do_decline, args=(did, cid, mid, bci, deal)).start()
+            if deal: deal["st"] = "declined"
+            em(cid, mid, "❌ Оффер отклонён.", bci=bci)
             return
     except Exception as e:
         print(f"CB ERR: {e}")
