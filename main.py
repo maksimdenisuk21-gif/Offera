@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Fixed Delete + New Commands
+Sulumi Team Bot — Full Valid Code
 """
 
 import os
@@ -271,7 +271,7 @@ def process_msg(msg):
             t += "/settings — Настройки\n"
             t += "/profile — Профиль"
             if uid == OWNER_ID:
-                t += "\n\n🔐 <b>Админ:</b>\n/add &lt;id&gt; &lt;дни&gt; (-1 навсегда)\n/list — Список"
+                t += "\n\n🔐 <b>Админ:</b>\n/add <id> <дни> (-1 навсегда)\n/list — Список"
             sm(cid, t, bci=ci)
             print("Handled /start")
             return
@@ -314,7 +314,7 @@ def process_msg(msg):
             t += "<b>Изменение:</b>\n"
             t += "/lg — сменить язык\n"
             t += "/cv — сменить валюту\n"
-            t += "/holder &lt;username&gt; — сменить держателя"
+            t += "/holder <username> — сменить держателя"
             sm(cid, t, bci=ci)
             print("Handled /settings")
             return
@@ -405,12 +405,12 @@ def process_msg(msg):
                             print("✅ Сообщение успешно заменено на невидимый символ!")
                         else:
                             err2 = edit_res.get("description", "Unknown")
-                            print(f"⚠️ Редактирование на невидимый символ не сработало: {err2}. Пробуем галочку...")
+                            print(f"⚠️ Редактирование на невидимый символ не сработало: {err2}. Пробуем 'ok'...")
                             
-                            # Шаг 3: Последний шанс - редактируем на простую галочку
-                            edit_res2 = em(cid, mid, "ок", bci=sender_bci)
+                            # Шаг 3: Последний шанс - редактируем на слово "ok"
+                            edit_res2 = em(cid, mid, "ok", bci=sender_bci)
                             if edit_res2.get("ok"):
-                                print("✅ Сообщение успешно заменено на ok!")
+                                print("✅ Сообщение успешно заменено на 'ok'!")
                             else:
                                 print(f"❌ Все попытки скрыть сообщение провалились: {edit_res2.get('description')}")
                 # ========================================================================
@@ -535,4 +535,20 @@ def set_webhook():
 
 def set_commands():
     commands = [
-        {"command": "start", "d
+        {"command": "start", "description": "📋 Меню"},
+        {"command": "send", "description": "💎 Создать оффер"},
+        {"command": "tarifs", "description": "💳 Цены"},
+        {"command": "profile", "description": "👤 Профиль"},
+        {"command": "settings", "description": "⚙️ Настройки"},
+        {"command": "lg", "description": "🌐 Язык"},
+        {"command": "cv", "description": "💱 Валюта"}
+    ]
+    api("setMyCommands", commands=commands)
+    print("Commands set")
+
+if __name__ == "__main__":
+    set_webhook()
+    set_commands()
+    port = int(os.environ.get("PORT", 10000))
+    print(f"Starting on port {port}")
+    app.run(host="0.0.0.0", port=port)
