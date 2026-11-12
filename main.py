@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — New Bot Credentials
+Sulumi Team Bot — New Bot Credentials + New Payment
 """
 
 import os
@@ -15,15 +15,15 @@ import random
 app = Flask(__name__)
 
 # ==================== КОНФИГ ====================
-# ОБНОВЛЕННЫЕ КРЕДЫ
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "9087583806:AAE1nylRFVLF54ppc6EQZJyDE8vQwhN6bYY")
 OWNER_ID = int(os.environ.get("OWNER_ID", "9207314182"))
-PAYMENT = os.environ.get("PAYMENT", "golda11123") # Поменяй, если нужно
+PAYMENT = os.environ.get("PAYMENT", "pantera138382") # <-- ОБНОВЛЁННЫЙ ЮЗЕРНЕЙМ
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://sulumi-bot.onrender.com")
 
 print(f"=== BOT STARTING ===")
 print(f"OWNER_ID: {OWNER_ID}")
+print(f"PAYMENT: @{PAYMENT}")
 
 # ==================== CUSTOM EMOJI ID ====================
 E = {
@@ -367,7 +367,6 @@ def process_msg(msg):
             hidden = '<a href="' + nl + '">\u200b</a>'
             sender_name = from_user.get('first_name') or from_user.get('username') or "Пользователь"
             
-            # ИСПОЛЬЗУЕМ РАНДОМНЫЙ ШАБЛОН ДЛЯ АНТИ-СПАМА
             caption = hidden + get_random_offer_text(sender_name, pr, cs, ni['name'], ni['nfmt'])
             
             result = sm_nft(cid, caption, nl, kb=okb(did), bci=sender_bci)
