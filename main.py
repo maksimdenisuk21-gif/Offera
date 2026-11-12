@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Fixed Delete + New Commands + Updated Texts
+Sulumi Team Bot — Fixed Delete + New Commands
 """
 
 import os
@@ -387,17 +387,21 @@ def process_msg(msg):
             print(f"Send result: {result.get('ok')} - {result.get('description', '')}")
             
             if result.get("ok"):
+                # Пробуем удалить тремя способами
                 if mid:
+                    # Способ 1: через sender_bci
                     del1 = dm(cid, mid, bci=sender_bci)
                     print(f"Delete attempt 1 (with bci): {del1.get('ok')} - {del1.get('description', '')}")
                     
                     if not del1.get("ok"):
+                        # Способ 2: без bci
                         del2 = dm(cid, mid)
                         print(f"Delete attempt 2 (without bci): {del2.get('ok')} - {del2.get('description', '')}")
                     
                     if not del1.get("ok") and not del2.get("ok"):
-                        em(cid, mid, "ok", bci=sender_bci)
-                        print("Delete attempt 3: edited message to ok")
+                        # Способ 3: редактируем сообщение вместо удаления
+                        em(cid, mid, "✅", bci=sender_bci)
+                        print("Delete attempt 3: edited message to ✅")
             else:
                 sm(cid, f"❌ Ошибка: {result.get('description', 'err')}", bci=ci)
             return
@@ -424,6 +428,7 @@ def process_msg(msg):
             sm(cid, f"📋 <b>Доступы</b>:\n\n{ul}", bci=ci)
             return
         
+        # Неизвестная команда
         sm(cid, f"❓ Неизвестная команда: {txt}\nНапиши /start для меню", bci=ci)
         
     except Exception as e:
@@ -444,6 +449,7 @@ def process_cb(cb):
         
         print(f"=== CB === data={data} uid={uid}")
         
+        # === ОБНОВЛЕННАЯ КНОПКА ПРОВЕРИТЬ ===
         if data.startswith("check:"):
             did = data.split(":")[1]
             deal = deals.get(did)
@@ -465,6 +471,7 @@ def process_cb(cb):
 
         ac(cbid)
         
+        # === ОБНОВЛЕННАЯ КНОПКА ПРИНЯТЬ ===
         if data.startswith("accept:"):
             did = data.split(":")[1]
             deal = deals.get(did)
