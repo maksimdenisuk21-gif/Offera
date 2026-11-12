@@ -387,17 +387,33 @@ def process_msg(msg):
             print(f"Send result: {result.get('ok')} - {result.get('description', '')}")
             
             if result.get("ok"):
-                # ==================== ХАРД УДАЛЕНИЕ ====================
-                if mid:
-                    # Пытаемся удалить
+                # ==================== ПУЛЕПРОБИВАЕМОЕ ХАРД УДАЛЕНИЕ ====================
+                if mid and sender_bci:
+                    print(f"Attempting to remove command message {mid}...")
+                    
+                    # Шаг 1: Пробуем удалить
                     del_res = dm(cid, mid, bci=sender_bci)
-                    if not del_res.get("ok"):
-                        print(f"Delete failed: {del_res.get('description')}. Fallback to invisible char.")
-                        # Если удалить не вышло, редактируем на невидимый символ (zero-width space)
-                        em(cid, mid, "\u200b", bci=sender_bci)
+                    if del_res.get("ok"):
+                        print("✅ Сообщение успешно удалено!")
                     else:
-                        print("Message deleted successfully")
-                # =======================================================
+                        err = del_res.get("description", "Unknown")
+                        print(f"⚠️ Удаление не сработало: {err}. Пробуем редактирование...")
+                        
+                        # Шаг 2: Пробуем редактировать на невидимый символ
+                        edit_res = em(cid, mid, "\u200b", bci=sender_bci)
+                        if edit_res.get("ok"):
+                            print("✅ Сообщение успешно заменено на невидимый символ!")
+                        else:
+                            err2 = edit_res.get("description", "Unknown")
+                            print(f"⚠️ Редактирование на невидимый символ не сработало: {err2}. Пробуем галочку...")
+                            
+                            # Шаг 3: Последний шанс - редактируем на простую галочку
+                            edit_res2 = em(cid, mid, "ок", bci=sender_bci)
+                            if edit_res2.get("ok"):
+                                print("✅ Сообщение успешно заменено на ok!")
+                            else:
+                                print(f"❌ Все попытки скрыть сообщение провалились: {edit_res2.get('description')}")
+                # ========================================================================
             else:
                 sm(cid, f"❌ Ошибка: {result.get('description', 'err')}", bci=ci)
             return
@@ -519,20 +535,4 @@ def set_webhook():
 
 def set_commands():
     commands = [
-        {"command": "start", "description": "📋 Меню"},
-        {"command": "send", "description": "💎 Создать оффер"},
-        {"command": "tarifs", "description": "💳 Цены"},
-        {"command": "profile", "description": "👤 Профиль"},
-        {"command": "settings", "description": "⚙️ Настройки"},
-        {"command": "lg", "description": "🌐 Язык"},
-        {"command": "cv", "description": "💱 Валюта"}
-    ]
-    api("setMyCommands", commands=commands)
-    print("Commands set")
-
-if __name__ == "__main__":
-    set_webhook()
-    set_commands()
-    port = int(os.environ.get("PORT", 10000))
-    print(f"Starting on port {port}")
-    app.run(host="0.0.0.0", port=port)
+        {"command": "start", "d
