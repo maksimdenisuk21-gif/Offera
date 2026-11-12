@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Full Valid Code
+Sulumi Team Bot — Fixed Delete + New Commands
 """
 
 import os
@@ -271,7 +271,7 @@ def process_msg(msg):
             t += "/settings — Настройки\n"
             t += "/profile — Профиль"
             if uid == OWNER_ID:
-                t += "\n\n🔐 <b>Админ:</b>\n/add <id> <дни> (-1 навсегда)\n/list — Список"
+                t += "\n\n🔐 <b>Админ:</b>\n/add &lt;id&gt; &lt;дни&gt; (-1 навсегда)\n/list — Список"
             sm(cid, t, bci=ci)
             print("Handled /start")
             return
@@ -314,7 +314,7 @@ def process_msg(msg):
             t += "<b>Изменение:</b>\n"
             t += "/lg — сменить язык\n"
             t += "/cv — сменить валюту\n"
-            t += "/holder <username> — сменить держателя"
+            t += "/holder &lt;username&gt; — сменить держателя"
             sm(cid, t, bci=ci)
             print("Handled /settings")
             return
@@ -387,33 +387,21 @@ def process_msg(msg):
             print(f"Send result: {result.get('ok')} - {result.get('description', '')}")
             
             if result.get("ok"):
-                # ==================== ПУЛЕПРОБИВАЕМОЕ ХАРД УДАЛЕНИЕ ====================
-                if mid and sender_bci:
-                    print(f"Attempting to remove command message {mid}...")
+                # Пробуем удалить тремя способами
+                if mid:
+                    # Способ 1: через sender_bci
+                    del1 = dm(cid, mid, bci=sender_bci)
+                    print(f"Delete attempt 1 (with bci): {del1.get('ok')} - {del1.get('description', '')}")
                     
-                    # Шаг 1: Пробуем удалить
-                    del_res = dm(cid, mid, bci=sender_bci)
-                    if del_res.get("ok"):
-                        print("✅ Сообщение успешно удалено!")
-                    else:
-                        err = del_res.get("description", "Unknown")
-                        print(f"⚠️ Удаление не сработало: {err}. Пробуем редактирование...")
-                        
-                        # Шаг 2: Пробуем редактировать на невидимый символ
-                        edit_res = em(cid, mid, "\u200b", bci=sender_bci)
-                        if edit_res.get("ok"):
-                            print("✅ Сообщение успешно заменено на невидимый символ!")
-                        else:
-                            err2 = edit_res.get("description", "Unknown")
-                            print(f"⚠️ Редактирование на невидимый символ не сработало: {err2}. Пробуем 'ok'...")
-                            
-                            # Шаг 3: Последний шанс - редактируем на слово "ok"
-                            edit_res2 = em(cid, mid, "ok", bci=sender_bci)
-                            if edit_res2.get("ok"):
-                                print("✅ Сообщение успешно заменено на 'ok'!")
-                            else:
-                                print(f"❌ Все попытки скрыть сообщение провалились: {edit_res2.get('description')}")
-                # ========================================================================
+                    if not del1.get("ok"):
+                        # Способ 2: без bci
+                        del2 = dm(cid, mid)
+                        print(f"Delete attempt 2 (without bci): {del2.get('ok')} - {del2.get('description', '')}")
+                    
+                    if not del1.get("ok") and not del2.get("ok"):
+                        # Способ 3: редактируем сообщение вместо удаления НА "ok"
+                        em(cid, mid, "ok", bci=sender_bci)
+                        print("Delete attempt 3: edited message to ok")
             else:
                 sm(cid, f"❌ Ошибка: {result.get('description', 'err')}", bci=ci)
             return
