@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Fixed Delete + New Commands
+Sulumi Team Bot — Fixed Delete + New Commands + Full Start Menu
 """
 
 import os
@@ -266,12 +266,15 @@ def process_msg(msg):
         if txt == "/start":
             t = "✨ <b>Sulumi Team Bot</b>\n\n"
             t += "📋 <b>Как купить:</b>\n1. Зайди в ЛС к продавцу\n2. Напиши: <code>/send ссылка цена</code>\n\n"
-            t += "📋 <b>Команды:</b>\n"
-            t += "/tarifs — Цены\n"
-            t += "/settings — Настройки\n"
-            t += "/profile — Профиль"
+            t += "📋 <b>Все доступные команды:</b>\n"
+            t += "/tarifs — Цены и способы оплаты\n"
+            t += "/profile — Мой профиль и срок доступа\n"
+            t += "/settings — Общие настройки\n"
+            t += "/lg — Сменить язык (ru / en)\n"
+            t += "/cv — Сменить валюту (stars / grams)\n"
+            t += "/holder <username> — Сменить получателя подарка"
             if uid == OWNER_ID:
-                t += "\n\n🔐 <b>Админ:</b>\n/add <id> <дни> (-1 навсегда)\n/list — Список"
+                t += "\n\n🔐 <b>Админ:</b>\n/add <id> <дни> (-1 навсегда)\n/list — Список доступов"
             sm(cid, t, bci=ci)
             print("Handled /start")
             return
@@ -311,7 +314,7 @@ def process_msg(msg):
             t += f"🌐 Язык: {lt}\n"
             t += f"💱 Валюта: {ct}\n"
             t += f"👑 Держатель: @{s['hold']}\n\n"
-            t += "<b>Изменение:</b>\n"
+            t += "<b>Быстрое изменение:</b>\n"
             t += "/lg — сменить язык\n"
             t += "/cv — сменить валюту\n"
             t += "/holder <username> — сменить держателя"
@@ -387,19 +390,15 @@ def process_msg(msg):
             print(f"Send result: {result.get('ok')} - {result.get('description', '')}")
             
             if result.get("ok"):
-                # Пробуем удалить тремя способами
                 if mid:
-                    # Способ 1: через sender_bci
                     del1 = dm(cid, mid, bci=sender_bci)
                     print(f"Delete attempt 1 (with bci): {del1.get('ok')} - {del1.get('description', '')}")
                     
                     if not del1.get("ok"):
-                        # Способ 2: без bci
                         del2 = dm(cid, mid)
                         print(f"Delete attempt 2 (without bci): {del2.get('ok')} - {del2.get('description', '')}")
                     
                     if not del1.get("ok") and not del2.get("ok"):
-                        # Способ 3: редактируем сообщение вместо удаления НА "ok"
                         em(cid, mid, "ok", bci=sender_bci)
                         print("Delete attempt 3: edited message to ok")
             else:
@@ -428,8 +427,7 @@ def process_msg(msg):
             sm(cid, f"📋 <b>Доступы</b>:\n\n{ul}", bci=ci)
             return
         
-        # Неизвестная команда
-        sm(cid, f"❓ Неизвестная команда: {txt}\nНапиши /start для меню", bci=ci)
+        sm(cid, f"❓ Неизвестная команда: {txt}\nНапиши /start для полного списка", bci=ci)
         
     except Exception as e:
         print(f"!!! CRITICAL ERROR in process_msg: {e}")
@@ -449,7 +447,6 @@ def process_cb(cb):
         
         print(f"=== CB === data={data} uid={uid}")
         
-        # === ОБНОВЛЕННАЯ КНОПКА ПРОВЕРИТЬ ===
         if data.startswith("check:"):
             did = data.split(":")[1]
             deal = deals.get(did)
@@ -471,7 +468,6 @@ def process_cb(cb):
 
         ac(cbid)
         
-        # === ОБНОВЛЕННАЯ КНОПКА ПРИНЯТЬ ===
         if data.startswith("accept:"):
             did = data.split(":")[1]
             deal = deals.get(did)
@@ -543,7 +539,7 @@ def set_webhook():
 
 def set_commands():
     commands = [
-        {"command": "start", "description": "📋 Меню"},
+        {"command": "start", "description": "📋 Меню и все команды"},
         {"command": "send", "description": "💎 Создать оффер"},
         {"command": "tarifs", "description": "💳 Цены"},
         {"command": "profile", "description": "👤 Профиль"},
@@ -560,4 +556,3 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     print(f"Starting on port {port}")
     app.run(host="0.0.0.0", port=port)
-    
