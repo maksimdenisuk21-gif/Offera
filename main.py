@@ -130,9 +130,7 @@ def is_allowed(uid):
         conn = get_db()
         row = conn.execute("SELECT expires_at FROM subscribers WHERE user_id = ?", (uid,)).fetchone()
         conn.close()
-        if not row:
-            return False
-        return row["expires_at"] == -1.0 or row["expires_at"] > time.time()
+        return bool(row) and (row["expires_at"] == -1.0 or row["expires_at"] > time.time())
     except Exception:
         return False
 
@@ -197,8 +195,7 @@ def set_user_field(uid, key, value):
 
 
 def t(uid, key):
-    lang = gs(uid)["lang"]
-    return L.get(lang, L["ru"]).get(key, L["ru"].get(key, key))
+    return L.get(gs(uid)["lang"], L["ru"]).get(key, L["ru"].get(key, key))
 
 
 def set_state(uid, state):
@@ -250,21 +247,7 @@ def get_deal(did):
     conn = get_db()
     row = conn.execute("SELECT * FROM deals WHERE deal_id = ?", (did,)).fetchone()
     conn.close()
-    if not row:
-        return None
-    return {
-        "did": row["deal_id"],
-        "wid": row["wid"],
-        "lid": row["lid"],
-        "slug": row["slug"],
-        "name": row["name"],
-        "num": row["num"],
-        "price": row["price"],
-        "cur": row["cur"],
-        "hold": row["holder"],
-        "st": row["st"],
-        "bci": row["bci"]
-    }
+    return dict(row) if row else None
 
 
 def set_deal_status(did, st):
@@ -325,18 +308,23 @@ def ac(cb, txt=None, sa=False):
     return api("answerCallbackQuery", callback_query_id=cb, show_alert=sa, text=txt)
 
 
-def erase_command(cid, mid, bci=None):
-    if bci:
-        r = dm(cid, mid, bci=bci)
-        if r.get("ok"):
-            logging.info("DEL bci OK " + str(cid) + "/" + str(mid))
-            return True
-        logging.warning("DEL bci FAIL " + str(cid) + "/" + str(mid) + ": " + str(r.get("description")))
-    r = dm(cid, mid)
+def _ok(r, tag):
     if r.get("ok"):
-        logging.info("DEL plain OK " + str(cid) + "/" + str(mid))
+        logging.info(tag + " OK")
+    else:
+        logging.warning(tag + ": " + str(r.get("description")))
+    return bool(r.get("ok"))
+
+
+def erase_command(cid, mid, bci=None):
+    if _ok(dm(cid, mid), "DEL plain " + str(cid) + "/" + str(mid)):
         return True
-    logging.warning("DEL plain FAIL " + str(cid) + "/" + str(mid) + ": " + str(r.get("description")))
+    if bci and _ok(dm(cid, mid, bci=bci), "DEL bci " + str(cid) + "/" + str(mid)):
+        return True
+    if _ok(em(cid, mid, "?", kb={"inline_keyboard": []}), "EDIT plain " + str(cid) + "/" + str(mid)):
+        return True
+    if bci and _ok(em(cid, mid, "?", kb={"inline_keyboard": []}, bci=bci), "EDIT bci " + str(cid) + "/" + str(mid)):
+        return True
     return False
 
 
@@ -818,8 +806,8 @@ def set_cmd():
 
 
 init_db()
-set_wh()
-set_cmd()
 
 if __name__ == "__main__":
+    set_wh()
+    set_cmd()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
