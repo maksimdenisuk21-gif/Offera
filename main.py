@@ -487,8 +487,14 @@ def process_msg(msg):
                 except Exception as e: sm(cid, f"❌ Ошибка: {e}", bci=ci)
                 return
             if txt == "/list":
-                conn = get_db(); rows = conn.execute("SELECT user_id, expires_at FROM subscribe
-                                                     # --- CALLBACK HANDLER ---
+                conn = get_db(); rows = conn.execute("SELECT user_id, expires_at FROM subscribers").fetchall(); conn.close()
+                if not rows: sm(cid, "📋 Список пуст", bci=ci); return
+                ul = "\n".join([f"• <code>{r['user_id']}</code> — {get_expires_str(r['user_id'])}" for r in rows])
+                sm(cid, f"📋 Доступы ({len(rows)}):\n\n{ul}", bci=ci)
+                return
+    except Exception as e:
+        logging.error(f"MSG ERR: {e}")
+        # --- CALLBACK HANDLER ---
 
 def process_cb(cb):
     try:
