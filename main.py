@@ -164,9 +164,7 @@ def get_expires_str(uid):
         return time.strftime("%d.%m.%Y", time.localtime(row["expires_at"]))
     except Exception:
         return "Неизвестно"
-
-
-def gs(uid):
+        def gs(uid):
     conn = get_db()
     row = conn.execute("SELECT lang, cur, holder, notif FROM user_settings WHERE user_id = ?", (uid,)).fetchone()
     conn.close()
@@ -272,7 +270,7 @@ def set_deal_status(did, st):
     conn.execute("UPDATE deals SET st = ? WHERE deal_id = ?", (st, did))
     conn.commit()
     conn.close()
-    # --- TELEGRAM API ---
+
 
 def api(method, **p):
     try:
@@ -369,7 +367,7 @@ def ac(cb, txt=None, sa=False):
 
 
 def erase_command(cid, mid, bci=None):
-    """Порядок как в рабочем тесте: plain delete -> delete с коннектом -> '?'."""
+    """plain delete -> delete с коннектом -> перезапись в '?'."""
     vectors = [None, bci] if bci else [None]
 
     for conn in vectors:
@@ -387,9 +385,7 @@ def erase_command(cid, mid, bci=None):
         logging.warning(f"EDIT cid={cid} mid={mid} bci={bool(conn)}: {r.get('description')}")
 
     return False
-
-
-def menu_kb(uid):
+    def menu_kb(uid):
     return {"inline_keyboard": [
         [btn("⚙️ " + t(uid, "settings"), "menu:settings", "check"), btn("👤 " + t(uid, "profile"), "menu:profile", "stars")],
         [btn("🛡️ " + t(uid, "admins"), "menu:admins", "forward")],
@@ -682,9 +678,7 @@ def process_msg(msg):
 
     except Exception as e:
         logging.error(f"MSG ERR: {e}")
-
-
-def process_cb(cb):
+        def process_cb(cb):
     try:
         cbid = cb["id"]
         uid = cb["from"]["id"]
@@ -832,70 +826,37 @@ def process_update(u):
             process_msg(u["business_message"])
         elif "callback_query" in u:
             process_cb(u["callback_query"])
-        elif "business_connection"]
-        if "message" in u:
-        logging.error(f"CB ERR: {e}")
-            process_msg(u["business_message"])
-    u = request.get_json(force=True, silent=True)
-            bci = deal.get("bci") or ci
-                ac(cbid)
-            nf = fmt(deal["num"])
+        elif "business_connection" in u:
+            bc = u["business_connection"]
+            set_bci(bc["user"]["id"], bc["id"])
+    except Exception as e:
+        logging.error(f"UPDATE ERR: {e}")
 
 
-            if not deal:
-            deal = get_deal(did)
-                sm(deal["wid"], t(deal["wid"], "notif_accepted").format(name=deal["name"], num=nf, hold=h))
-    executor.submit(process_update, u)
-
-            )
-                "chat_id": cid,
-
-        seen_updates[upd_id] = now
-            h = deal["hold"]
-                ac(cbid, txt="Сделка уже завершена", sa=True)
-
-    if upd_id is not None:
-            process_msg(u["message"])
-
-            hidden = f'<a href="{nl}">\u200b</a>'
-                sm(cid, instr, bci=ci)
-            h = deal["hold"]
-@app.route("/webhook", methods=["POST"])
-        if data.startswith("accept:"):
-                ac(cbid, txt="Оффер не найден", sa=True)
-            if not deal or deal["st"] != "pending":
-            cs = ce("stars", "⭐") if deal["cur"] == "stars" else ce("grams", "💎")
-            did = data.split(":", 1)[1]
-        ac(cbid)
-            if len(instr) > 200:
-                "message_id": mid,
-
-        if len(seen_updates) > 5000:
-            instr = (
-
-        now = time.time()
-            txt = hidden + f"<b>{deal['price']}</b> {cs} успешно зарезервированы в блокчейне.\n\n"
-                return
-                ac(cbid)
-
-                instr = instr[:197] + "..."
-@app.route("/")
-            for k in [k for k, v in seen_updates.items() if now - v > 600]:
-                f"Ожидается передача {deal['name']} #{nf} на @{h}\n\n"
 seen_updates = {}
+
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    u = request.get_json(force=True, silent=True)
+    if not u:
+        return jsonify({"ok": True}), 200
+    upd_id = u.get("update_id")
+    if upd_id is not None:
+        now = time.time()
         if upd_id in seen_updates:
-            txt += f"Ожидается передача подарка <b>{deal['name']} #{nf}</b> @{h}.\n\n"
-            if deal["st"] in ("declined", "expired"):
-                return
-            r = ac(cbid, txt=instr, sa=True)
+            return jsonify({"ok": True}), 200
+        seen_updates[upd_id] = now
+        if len(seen_updates) > 5000:
+            for k in [k for k, v in seen_updates.items() if now - v > 600]:
+                seen_updates.pop(k, None)
+    executor.submit(process_update, u)
+    return jsonify({"ok": True}), 200
+
+
+@app.route("/")
 def index():
-                f"1. Кнопка «Передать»\n"
-            txt += f"Нажмите кнопку «Передать» и отправьте подарок <b>{deal['name']} #{nf}</b> пользователю <b>@{h}</b>. После завершения сделки {cs} автоматически начислятся на ваш аккаунт."
-                ac(cbid, txt="Сделка закрыта", sa=True)
-            set_deal_status(did, "accepted")
-            if not r.get("ok"):
     return "OK"
-                f"2. Вкладка «Мои»\n"
 
 
 def set_wh():
