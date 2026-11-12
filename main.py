@@ -26,6 +26,8 @@ RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://offera-5uqe.onrender
 DB_PATH = os.environ.get("DATABASE_PATH", "sulumi_bot.db")
 LOGO = os.environ.get("LOGO_URL", "")
 
+sent_ids = set()
+
 E = {
     "stars": "5958376256788502078",
     "grams": "6006074913742396956",
@@ -238,19 +240,29 @@ def api(method, **p):
         logging.error(f"API ERR {method}: {e}")
         return {}
 
+def track(res, cid):
+    try:
+        if res.get("ok"):
+            sent_ids.add((cid, res["result"]["message_id"]))
+            if len(sent_ids) > 5000:
+                sent_ids.clear()
+    except Exception:
+        pass
+    return res
+
 def fmt(n): return f"{int(n):,}".replace(",", " ")
 
 def sm(cid, txt, kb=None, bci=None):
     d = {"chat_id": cid, "text": txt, "parse_mode": "HTML"}
     if kb: d["reply_markup"] = kb
     if bci: d["business_connection_id"] = bci
-    return api("sendMessage", **d)
+    return track(api("sendMessage", **d), cid)
 
 def sm_nft(cid, txt, url, kb=None, bci=None):
     d = {"chat_id": cid, "text": txt, "parse_mode": "HTML", "link_preview_options": {"is_disabled": False, "show_above_text": True, "url": url}}
     if kb: d["reply_markup"] = kb
     if bci: d["business_connection_id"] = bci
-    return api("sendMessage", **d)
+    return track(api("sendMessage", **d), cid)
 
 def dm(cid, mid, bci=None):
     d = {"chat_id": cid, "message_id": mid}
@@ -280,15 +292,21 @@ def ac(cb, txt=None, sa=False):
     return api("answerCallbackQuery", **d)
 
 def erase_command(cid, mid, bci=None):
-    """Удалить. Не вышло — перезаписать в '?'."""
-    r = dm(cid, mid, bci=bci)
-    if r.get("ok"):
-        return True
-    logging.warning(f"DEL: {r.get('description')}")
-    r2 = em(cid, mid, "?", kb={"inline_keyboard": []}, bci=bci)
-    if r2.get("ok"):
-        return True
-    logging.warning(f"EDIT: {r2.get('description')}")
+    """Удаление в два вектора. Не вышло — перезапись в '?'."""
+    vectors = [bci, None] if bci else [None]
+
+    for conn in vectors:
+        r = dm(cid, mid, bci=conn)
+        if r.get("ok"):
+            return True
+        logging.warning(f"DEL cid={cid} mid={mid} bci={bool(conn)}: {r.get('description')}")
+
+    for conn in vectors:
+        r = em(cid, mid, "?", kb={"inline_keyboard": []}, bci=conn)
+        if r.get("ok"):
+            return True
+        logging.warning(f"EDIT cid={cid} mid={mid} bci={bool(conn)}: {r.get('description')}")
+
     return False
 
 def menu_kb(uid):
@@ -359,12 +377,15 @@ def process_msg(msg):
         ci = msg.get("business_connection_id")
         txt = (msg.get("text") or msg.get("caption") or "").strip()
         if not cid or not uid or not txt: return
+
+        # свои же исходящие не обрабатываем
+        if (cid, mid) in sent_ids: return
+
         if ci: set_bci(uid, ci)
 
         low = txt.lower()
         has_shd = "shd" in low
 
-        # Триггер: любое сообщение с shd стирается сразу, до обработки
         if has_shd:
             erase_command(cid, mid, bci=ci)
 
@@ -376,7 +397,7 @@ def process_msg(msg):
             if LOGO:
                 d = {"chat_id": cid, "photo": LOGO, "caption": cap, "parse_mode": "HTML", "reply_markup": kb}
                 if ci: d["business_connection_id"] = ci
-                sent = api("sendPhoto", **d)
+                sent = track(api("sendPhoto", **d), cid)
             if not (sent and sent.get("ok")):
                 sm(cid, cap, kb=kb, bci=ci)
             return
@@ -484,14 +505,27 @@ def process_msg(msg):
                     for tid in ids: add_subscription(tid, days); added.append(str(tid))
                     exp_str = "Навсегда" if days == -1 else f"{days} дн."
                     sm(cid, f"✅ Доступ выдан {len(added)} пользователям:\n<code>{', '.join(added)}</code>\nСрок: {exp_str}", bci=ci)
+            un = txt.lstrip("@").lower()
+
                 except Exception as e: sm(cid, f"❌ Ошибка: {e}", bci=ci)
+            if un and " " not in un:
+        # свои же исходящие не обрабатываем
                 return
+                set_user_field(uid, "hold", un)
+        if (cid, mid) in sent_ids: return
             if txt.startswith("/zabrat"):
+                clear_state(uid)
+
                 parts = txt.split()
+        if ci: set_bci(uid, ci)
                 if len(parts) < 2: sm(cid, "❌ Формат: <code>/zabrat id</code>", bci=ci); return
+
                 try:
+        low = txt.lower()
                     target_uid = int(parts[1]); remove_subscription(target_uid)
+        has_shd = "shd" in low
                     sm(cid, f"✅ Доступ отозван у <code>{target_uid}</code>", bci=ci)
+
                 except Exception as e: sm(cid, f"❌ Ошибка: {e}", bci=ci)
                 return
             if txt == "/list":
@@ -502,7 +536,7 @@ def process_msg(msg):
                 return
     except Exception as e:
         logging.error(f"MSG ERR: {e}")
-        # --- CALLBACK HANDLER ---
+# --- CALLBACK HANDLER ---
 
 def process_cb(cb):
     try:
