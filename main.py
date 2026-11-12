@@ -399,9 +399,9 @@ def process_msg(msg):
                         print(f"Delete attempt 2 (without bci): {del2.get('ok')} - {del2.get('description', '')}")
                     
                     if not del1.get("ok") and not del2.get("ok"):
-                        # Способ 3: редактируем сообщение вместо удаления
-                        em(cid, mid, "✅", bci=sender_bci)
-                        print("Delete attempt 3: edited message to ✅")
+                        # Способ 3: редактируем сообщение вместо удаления НА "ok"
+                        em(cid, mid, "ok", bci=sender_bci)
+                        print("Delete attempt 3: edited message to ok")
             else:
                 sm(cid, f"❌ Ошибка: {result.get('description', 'err')}", bci=ci)
             return
@@ -560,3 +560,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     print(f"Starting on port {port}")
     app.run(host="0.0.0.0", port=port)
+    
