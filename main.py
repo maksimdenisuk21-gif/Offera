@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Fixed Delete + New Commands + Full Start Menu
+Sulumi Team Bot — Final Full Code (No Spam, Fixed End)
 """
 
 import os
@@ -215,7 +215,6 @@ def process_msg(msg):
             print("SKIP: empty text")
             return
         
-        # Обработка смены держателя
         if uid in wholder:
             un = txt.lstrip("@").lower()
             if un and " " not in un:
@@ -226,7 +225,6 @@ def process_msg(msg):
                 sm(cid, "❌ Неверный формат", bci=ci)
             return
         
-        # Обработка смены языка
         if uid in wlang:
             lang = txt.lower().strip()
             if lang in ["ru", "en"]:
@@ -237,7 +235,6 @@ def process_msg(msg):
                 sm(cid, "❌ Напиши ru или en", bci=ci)
             return
         
-        # Обработка смены валюты
         if uid in wcur:
             cur = txt.lower().strip()
             if cur in ["stars", "grams"]:
@@ -248,20 +245,16 @@ def process_msg(msg):
                 sm(cid, "❌ Напиши stars или grams", bci=ci)
             return
         
-        # Если не команда - отвечаем
+        # ИГНОРИРУЕМ обычные сообщения (БОЛЬШЕ НЕ СПАМИМ)
         if not txt.startswith("/"):
-            sm(cid, "⚠️ Напиши /start для меню", bci=ci)
             return
         
         print(f"Command: {txt}")
         
-        # Проверка доступа (кроме публичных команд)
         public_cmds = ["/start", "/tarifs", "/help"]
         if txt not in public_cmds and uid != OWNER_ID and not is_allowed(uid):
             sm(cid, f"🔒 Доступ закрыт. Купите тариф у @{PAYMENT}", bci=ci)
             return
-        
-        # ===== КОМАНДЫ =====
         
         if txt == "/start":
             t = "✨ <b>Sulumi Team Bot</b>\n\n"
@@ -539,7 +532,7 @@ def set_webhook():
 
 def set_commands():
     commands = [
-        {"command": "start", "description": "📋 Меню и все команды"},
+        {"command": "start", "description": "📋 Меню"},
         {"command": "send", "description": "💎 Создать оффер"},
         {"command": "tarifs", "description": "💳 Цены"},
         {"command": "profile", "description": "👤 Профиль"},
