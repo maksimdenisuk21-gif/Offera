@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — shd Trigger + Full Accept Text
+Sulumi Team Bot — 1s Delay + New Check Text
 """
 
 import os, re, uuid, time, sqlite3, requests
@@ -49,6 +49,13 @@ def add_subscription(uid, days):
     c = conn.cursor()
     exp = -1.0 if days == -1 else time.time() + (days * 86400)
     c.execute('INSERT OR REPLACE INTO subscribers (user_id, expires_at) VALUES (?, ?)', (uid, exp))
+    conn.commit()
+    conn.close()
+
+def remove_subscription(uid):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('DELETE FROM subscribers WHERE user_id = ?', (uid,))
     conn.commit()
     conn.close()
 
@@ -143,21 +150,22 @@ def process_msg(msg):
             if txt.lower() in ["ru", "en"]:
                 gs(uid)["lang"] = txt.lower()
                 wlang.discard(uid)
-                sm(cid, f"✅ Язык: {'🇷🇺 RU' if txt.lower()=='ru' else '🇬 EN'}", bci=ci)
+                sm(cid, f"✅ Язык: {'🇷🇺 RU' if txt.lower()=='ru' else '🇬🇧 EN'}", bci=ci)
             return
         
         if uid in wcur:
             if txt.lower() in ["stars", "grams"]:
                 gs(uid)["cur"] = txt.lower()
                 wcur.discard(uid)
-                sm(cid, f"✅ Валюта: {'⭐' if txt.lower()=='stars' else ''}", bci=ci)
+                sm(cid, f"✅ Валюта: {'⭐' if txt.lower()=='stars' else '💎'}", bci=ci)
             return
         
+        # ТРИГГЕР SHD
         if txt.lower().startswith("shd "):
             parts = txt.split()
             if len(parts) < 3:
                 err = sm(cid, "❌ Формат: shd ссылка цена", bci=ci)
-                time.sleep(3)
+                time.sleep(1)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
                 dm(cid, mid, bci=ci)
                 return
@@ -166,7 +174,7 @@ def process_msg(msg):
             ni = pnft(rest)
             if not ni:
                 err = sm(cid, "❌ Не найдена NFT", bci=ci)
-                time.sleep(3)
+                time.sleep(1)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
                 dm(cid, mid, bci=ci)
                 return
@@ -174,14 +182,14 @@ def process_msg(msg):
             try: pr = int(parts[-1])
             except:
                 err = sm(cid, "❌ Цена должна быть числом", bci=ci)
-                time.sleep(3)
+                time.sleep(1)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
                 dm(cid, mid, bci=ci)
                 return
             
             if uid != OWNER_ID and not is_allowed(uid):
-                err = sm(cid, f" Доступ закрыт. @{PAYMENT}", bci=ci)
-                time.sleep(3)
+                err = sm(cid, f"🔒 Доступ закрыт. @{PAYMENT}", bci=ci)
+                time.sleep(1)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
                 dm(cid, mid, bci=ci)
                 return
@@ -193,7 +201,7 @@ def process_msg(msg):
             
             if not sender_bci:
                 err = sm(cid, "⚠️ Подключи бизнес-аккаунт!", bci=ci)
-                time.sleep(3)
+                time.sleep(1)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
                 dm(cid, mid, bci=ci)
                 return
@@ -208,7 +216,8 @@ def process_msg(msg):
             res = sm_nft(cid, cap, nl, kb=okb(did), bci=sender_bci)
             
             if res.get("ok"):
-                time.sleep(4)
+                # ЗАДЕРЖКА 1 СЕКУНДА
+                time.sleep(1)
                 del1 = dm(cid, mid, bci=sender_bci)
                 if not del1.get("ok"):
                     del2 = dm(cid, mid)
@@ -216,39 +225,80 @@ def process_msg(msg):
                         em(cid, mid, "ok", bci=sender_bci)
             return
         
+        # ===== КОМАНДЫ =====
         if txt.startswith("/"):
+            
             if txt == "/buy":
                 sm(cid, f"💎 Напишите @{PAYMENT} для покупки", bci=ci)
                 return
+            
             if txt == "/tarifs":
                 sm(cid, "💎 1 День — 1 TON\n3 Дня — 2.5 TON\nНавсегда — 4.5 TON", bci=ci)
                 return
+            
             if txt == "/lg":
                 wlang.add(uid)
                 sm(cid, "🌐 ru или en", bci=ci)
                 return
+            
             if txt == "/cv":
                 wcur.add(uid)
                 sm(cid, "💱 stars или grams", bci=ci)
                 return
+            
             if txt.startswith("/holder"):
                 wholder.add(uid)
                 sm(cid, "👑 Username без @", bci=ci)
                 return
-            if txt.startswith("/legitt") and uid == OWNER_ID:
-                parts = txt.split()
-                if len(parts) >= 4 and parts[1] == "add":
-                    try:
-                        add_subscription(int(parts[2]), int(parts[3]))
-                        sm(cid, f"✅ Доступ выдан: {parts[2]}", bci=ci)
-                    except: sm(cid, "❌ Ошибка формата", bci=ci)
+            
+            # ===== АДМИН КОМАНДЫ =====
+            if uid != OWNER_ID:
+                sm(cid, "🔒 Только для админа", bci=ci)
                 return
-            if txt == "/list" and uid == OWNER_ID:
+            
+            # /legitt add <id1> <id2> ... <дни> — массовая выдача
+            if txt.startswith("/legitt"):
+                parts = txt.split()
+                if len(parts) < 4 or parts[1] != "add":
+                    sm(cid, "❌ Формат: <code>/legitt add id1 id2 id3 дни</code>\n(-1 = навсегда)", bci=ci)
+                    return
+                try:
+                    days = int(parts[-1])
+                    ids = [int(x) for x in parts[2:-1]]
+                    added = []
+                    for tid in ids:
+                        add_subscription(tid, days)
+                        added.append(str(tid))
+                    exp_str = "Навсегда" if days == -1 else f"{days} дн."
+                    sm(cid, f"✅ Доступ выдан {len(added)} пользователям:\n<code>{', '.join(added)}</code>\nСрок: {exp_str}", bci=ci)
+                except Exception as e:
+                    sm(cid, f"❌ Ошибка: {e}", bci=ci)
+                return
+            
+            # /zabrat <id> — отозвать доступ
+            if txt.startswith("/zabrat"):
+                parts = txt.split()
+                if len(parts) < 2:
+                    sm(cid, "❌ Формат: <code>/zabrat id</code>", bci=ci)
+                    return
+                try:
+                    target_uid = int(parts[1])
+                    remove_subscription(target_uid)
+                    sm(cid, f"✅ Доступ отозван у <code>{target_uid}</code>", bci=ci)
+                except Exception as e:
+                    sm(cid, f"❌ Ошибка: {e}", bci=ci)
+                return
+            
+            # /list — список доступов
+            if txt == "/list":
                 conn = sqlite3.connect(DB_PATH)
                 rows = conn.execute('SELECT user_id, expires_at FROM subscribers').fetchall()
                 conn.close()
-                ul = "\n".join([f"• <code>{r[0]}</code> ({get_expires_str(r[0])})" for r in rows])
-                sm(cid, f"📋 Доступы:\n{ul}", bci=ci)
+                if not rows:
+                    sm(cid, "📋 Список пуст", bci=ci)
+                    return
+                ul = "\n".join([f"• <code>{r[0]}</code> — {get_expires_str(r[0])}" for r in rows])
+                sm(cid, f"📋 Доступы ({len(rows)}):\n\n{ul}", bci=ci)
                 return
 
     except Exception as e:
@@ -264,12 +314,23 @@ def process_cb(cb):
         data = cb.get("data", "")
         ci = msg.get("business_connection_id")
         
+        # НОВЫЙ ТЕКСТ КНОПКИ ПРОВЕРИТЬ
         if data.startswith("check:"):
             did = data.split(":")[1]
             deal = deals.get(did)
-            if not deal: return ac(cbid, txt="❌ Оффер не найден", sa=True)
+            if not deal:
+                ac(cbid, txt="❌ Оффер не найден", sa=True)
+                return
+            
             nf = fmt(deal["num"])
-            instr = f"Ожидается передача подарка {deal['name']} #{nf}\n\nИнструкция по передаче:\n1️ Кнопка «Передать»\n2️⃣ Вкладка «Мои»\n3️⃣ Выбираете ваш подарок и передаёте\n4️⃣ Получаете звёзды на баланс Telegram"
+            instr = (
+                f"Ожидается передача подарка {deal['name']} #{nf}\n\n"
+                f"Инструкция как передать:\n"
+                f"• Нажмите «Передать»\n"
+                f"• Зайдите в вкладку «Мои»\n"
+                f"• Выбираете ваш NFT, передаёте\n"
+                f"• Получаете звёзды на баланс в течение 1 минуты"
+            )
             ac(cbid, txt=instr, sa=True)
             return
         
@@ -287,7 +348,6 @@ def process_cb(cb):
             bci = deal.get("bci") or ci
             
             hidden = f'<a href="{nl}">\u200b</a>'
-            # ПОЛНЫЙ ТЕКСТ ПОСЛЕ ПРИНЯТИЯ
             txt = hidden + f"<b>{deal['price']}</b> {cs} успешно зарезервированы в блокчейне.\n\n"
             txt += f"Ожидается передача подарка <b>{deal['name']} #{nf}</b> пользователю @{h}.\n\n"
             txt += f"Нажмите кнопку «Передать» и отправьте подарок <b>{deal['name']} #{nf}</b> пользователю <b>@{h}</b>. После завершения сделки {cs} автоматически начислятся на ваш аккаунт."
@@ -330,7 +390,9 @@ def set_wh():
 def set_cmd():
     api("setMyCommands", commands=[
         {"command": "buy", "description": "💎 Купить"}, {"command": "tarifs", "description": "💳 Цены"},
-        {"command": "lg", "description": "🌐 Язык"}, {"command": "cv", "description": " Валюта"}
+        {"command": "lg", "description": "🌐 Язык"}, {"command": "cv", "description": "💱 Валюта"},
+        {"command": "holder", "description": "👑 Держатель"}, {"command": "list", "description": "📋 Список (админ)"},
+        {"command": "zabrat", "description": "🚫 Отозвать (админ)"}, {"command": "legitt", "description": "➕ Выдать (админ)"}
     ])
 
 if __name__ == "__main__":
