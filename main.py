@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Hard Delete Trigger + DB Owner Only
+Sulumi Team Bot — Fixed Delete + Debug Mode
 """
 
 import os
@@ -204,8 +204,9 @@ def handle_message(msg):
             sm(cid, "❌ Неверный формат. Напишите username без @", bci=ci)
         return
 
-    # 2. ИГНОРИРОВАНИЕ обычных сообщений
+    # 2. НЕ ИГНОРИРУЕМ обычные сообщения (для отладки)
     if not txt.startswith("/"):
+        sm(cid, f"⚠️ Неизвестная команда. Напиши /start для меню.", bci=ci)
         return
 
     # 3. ПРОВЕРКА ДОСТУПА (кроме /start и /тарифы)
@@ -280,17 +281,15 @@ def handle_message(msg):
         sender_name = msg['from'].get('first_name') or msg['from'].get('username') or "Пользователь"
         caption = hidden + f"<b>{sender_name}</b> предлагает <b>{pr}</b> {cs} за ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>.\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
 
-        # ШАГ 1: Отправляем оффер
+        # Отправляем оффер
         result = sm_nft(cid, caption, nl, kb=okb(did), bci=sender_bci)
         
         if result.get("ok"):
-            # ШАГ 2: ЖЕСТКИЙ ТРИГГЕР НА УДАЛЕНИЕ
+            # ВАЖНО: Удаляем через sender_bci (тот же, через который отправляли)
             if mid:
-                del_res = dm(cid, mid, bci=ci) # Удаляем через business_connection чата
-                if not del_res.get("ok"):
-                    print(f"⚠️ НЕ УДАЛОСЬ УДАЛИТЬ СООБЩЕНИЕ {mid}: {del_res.get('description')}")
-                else:
-                    print(f"✅ Сообщение с командой {mid} успешно удалено.")
+                del_result = dm(cid, mid, bci=sender_bci)
+                if not del_result.get("ok"):
+                    print(f"⚠️ НЕ УДАЛОСЬ УДАЛИТЬ СООБЩЕНИЕ {mid}: {del_result.get('description')}")
         else:
             err = result.get("description", "err").lower()
             if "business_peer_usage_missing" in err:
