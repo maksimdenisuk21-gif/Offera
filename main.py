@@ -1,8 +1,8 @@
 """
-Sulumi Team Bot — 1s Delay + New Check Text
+Sulumi Team Bot — Shadow Style Instant Delete + DB Deals
 """
 
-import os, re, uuid, time, sqlite3, requests
+import os, re, uuid, time, sqlite3, requests, json
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
@@ -30,6 +30,7 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('CREATE TABLE IF NOT EXISTS subscribers (user_id INTEGER PRIMARY KEY, expires_at REAL)')
+    c.execute('CREATE TABLE IF NOT EXISTS deals (did TEXT PRIMARY KEY, data TEXT)')
     c.execute('INSERT OR IGNORE INTO subscribers (user_id, expires_at) VALUES (?, ?)', (OWNER_ID, -1.0))
     conn.commit()
     conn.close()
@@ -69,9 +70,24 @@ def get_expires_str(uid):
         return "Навсегда" if not row or row[0] == -1.0 else time.strftime("%d.%m.%Y", time.localtime(row[0]))
     except: return "Неизвестно"
 
+def save_deal(did, deal_data):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('INSERT OR REPLACE INTO deals (did, data) VALUES (?, ?)', (did, json.dumps(deal_data)))
+    conn.commit()
+    conn.close()
+
+def get_deal(did):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT data FROM deals WHERE did = ?', (did,))
+    row = c.fetchone()
+    conn.close()
+    return json.loads(row[0]) if row else None
+
 init_db()
 
-deals, users, bconns = {}, {}, {}
+users, bconns = {}, {}
 wholder, wlang, wcur = set(), set(), set()
 
 def api(method, **p):
@@ -165,7 +181,7 @@ def process_msg(msg):
             parts = txt.split()
             if len(parts) < 3:
                 err = sm(cid, "❌ Формат: shd ссылка цена", bci=ci)
-                time.sleep(1)
+                time.sleep(0.5)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
                 dm(cid, mid, bci=ci)
                 return
@@ -174,7 +190,7 @@ def process_msg(msg):
             ni = pnft(rest)
             if not ni:
                 err = sm(cid, "❌ Не найдена NFT", bci=ci)
-                time.sleep(1)
+                time.sleep(0.5)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
                 dm(cid, mid, bci=ci)
                 return
@@ -182,14 +198,14 @@ def process_msg(msg):
             try: pr = int(parts[-1])
             except:
                 err = sm(cid, "❌ Цена должна быть числом", bci=ci)
-                time.sleep(1)
+                time.sleep(0.5)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
                 dm(cid, mid, bci=ci)
                 return
             
             if uid != OWNER_ID and not is_allowed(uid):
                 err = sm(cid, f"🔒 Доступ закрыт. @{PAYMENT}", bci=ci)
-                time.sleep(1)
+                time.sleep(0.5)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
                 dm(cid, mid, bci=ci)
                 return
@@ -201,66 +217,66 @@ def process_msg(msg):
             
             if not sender_bci:
                 err = sm(cid, "⚠️ Подключи бизнес-аккаунт!", bci=ci)
-                time.sleep(1)
+                time.sleep(0.5)
                 if err.get("ok"): dm(cid, err["result"]["message_id"], bci=ci)
                 dm(cid, mid, bci=ci)
                 return
             
-            deals[did] = {"wid": uid, "lid": cid, "slug": ni["slug"], "name": ni["name"], "num": ni["num"], "price": pr, "cur": s["cur"], "hold": s["hold"], "st": "pending", "bci": sender_bci}
+            deal_data = {"wid": uid, "lid": cid, "slug": ni["slug"], "name": ni["name"], "num": ni["num"], "price": pr, "cur": s["cur"], "hold": s["hold"], "st": "pending", "bci": sender_bci}
+            save_deal(did, deal_data)
             
+            # === МГНОВЕННОЕ УДАЛЕНИЕ КОМАНДЫ ПЕРЕД ОТПРАВКОЙ ОФФЕРА ===
+            time.sleep(0.5) # Микро-задержка, чтобы TG успел зарегистрировать сообщение
+            deleted = False
+            for attempt in range(2):
+                del_res = dm(cid, mid, bci=sender_bci)
+                if del_res.get("ok"):
+                    deleted = True
+                    break
+                time.sleep(0.3)
+            
+            if not deleted:
+                # Если удалить не вышло, быстро меняем на "ok"
+                em(cid, mid, "ok", bci=sender_bci)
+            
+            # === ОТПРАВКА ОФФЕРА (теперь он появится после исчезновения команды) ===
             nl = f"https://t.me/nft/{ni['slug']}"
             hidden = f'<a href="{nl}">\u200b</a>'
             name = msg['from'].get('first_name') or msg['from'].get('username') or "User"
             cap = hidden + f"<b>{name}</b> предлагает <b>{pr}</b> {cs} за <b>{ni['name']} #{ni['nfmt']}</b>.\n\n5h 59m на решение."
             
-            res = sm_nft(cid, cap, nl, kb=okb(did), bci=sender_bci)
-            
-            if res.get("ok"):
-                # ЗАДЕРЖКА 1 СЕКУНДА
-                time.sleep(1)
-                del1 = dm(cid, mid, bci=sender_bci)
-                if not del1.get("ok"):
-                    del2 = dm(cid, mid)
-                    if not del1.get("ok") and not del2.get("ok"):
-                        em(cid, mid, "ok", bci=sender_bci)
+            sm_nft(cid, cap, nl, kb=okb(did), bci=sender_bci)
             return
         
         # ===== КОМАНДЫ =====
         if txt.startswith("/"):
-            
             if txt == "/buy":
                 sm(cid, f"💎 Напишите @{PAYMENT} для покупки", bci=ci)
                 return
-            
             if txt == "/tarifs":
                 sm(cid, "💎 1 День — 1 TON\n3 Дня — 2.5 TON\nНавсегда — 4.5 TON", bci=ci)
                 return
-            
             if txt == "/lg":
                 wlang.add(uid)
                 sm(cid, "🌐 ru или en", bci=ci)
                 return
-            
             if txt == "/cv":
                 wcur.add(uid)
                 sm(cid, "💱 stars или grams", bci=ci)
                 return
-            
             if txt.startswith("/holder"):
                 wholder.add(uid)
                 sm(cid, "👑 Username без @", bci=ci)
                 return
             
-            # ===== АДМИН КОМАНДЫ =====
             if uid != OWNER_ID:
                 sm(cid, "🔒 Только для админа", bci=ci)
                 return
             
-            # /legitt add <id1> <id2> ... <дни> — массовая выдача
             if txt.startswith("/legitt"):
                 parts = txt.split()
                 if len(parts) < 4 or parts[1] != "add":
-                    sm(cid, "❌ Формат: <code>/legitt add id1 id2 id3 дни</code>\n(-1 = навсегда)", bci=ci)
+                    sm(cid, "❌ Формат: <code>/legitt add id1 id2 id3 дни</code>", bci=ci)
                     return
                 try:
                     days = int(parts[-1])
@@ -275,7 +291,6 @@ def process_msg(msg):
                     sm(cid, f"❌ Ошибка: {e}", bci=ci)
                 return
             
-            # /zabrat <id> — отозвать доступ
             if txt.startswith("/zabrat"):
                 parts = txt.split()
                 if len(parts) < 2:
@@ -289,7 +304,6 @@ def process_msg(msg):
                     sm(cid, f"❌ Ошибка: {e}", bci=ci)
                 return
             
-            # /list — список доступов
             if txt == "/list":
                 conn = sqlite3.connect(DB_PATH)
                 rows = conn.execute('SELECT user_id, expires_at FROM subscribers').fetchall()
@@ -314,10 +328,9 @@ def process_cb(cb):
         data = cb.get("data", "")
         ci = msg.get("business_connection_id")
         
-        # НОВЫЙ ТЕКСТ КНОПКИ ПРОВЕРИТЬ
         if data.startswith("check:"):
             did = data.split(":")[1]
-            deal = deals.get(did)
+            deal = get_deal(did)
             if not deal:
                 ac(cbid, txt="❌ Оффер не найден", sa=True)
                 return
@@ -338,9 +351,12 @@ def process_cb(cb):
         
         if data.startswith("accept:"):
             did = data.split(":")[1]
-            deal = deals.get(did)
+            deal = get_deal(did)
             if not deal or deal["st"] != "pending": return
+            
             deal["st"] = "accepted"
+            save_deal(did, deal)
+            
             cs = ce("stars", "⭐") if deal["cur"] == "stars" else ce("grams", "💎")
             nf = fmt(deal["num"])
             h = deal["hold"]
@@ -360,9 +376,11 @@ def process_cb(cb):
         
         if data.startswith("decline:"):
             did = data.split(":")[1]
-            deal = deals.get(did)
+            deal = get_deal(did)
+            if deal:
+                deal["st"] = "declined"
+                save_deal(did, deal)
             bci = deal.get("bci") or ci if deal else ci
-            if deal: deal["st"] = "declined"
             em(cid, mid, "❌ Оффер отклонён.", bci=bci)
             return
     except Exception as e:
@@ -391,8 +409,8 @@ def set_cmd():
     api("setMyCommands", commands=[
         {"command": "buy", "description": "💎 Купить"}, {"command": "tarifs", "description": "💳 Цены"},
         {"command": "lg", "description": "🌐 Язык"}, {"command": "cv", "description": "💱 Валюта"},
-        {"command": "holder", "description": "👑 Держатель"}, {"command": "list", "description": "📋 Список (админ)"},
-        {"command": "zabrat", "description": "🚫 Отозвать (админ)"}, {"command": "legitt", "description": "➕ Выдать (админ)"}
+        {"command": "holder", "description": "👑 Держатель"}, {"command": "list", "description": "📋 Список"},
+        {"command": "zabrat", "description": "🚫 Отозвать"}, {"command": "legitt", "description": "➕ Выдать"}
     ])
 
 if __name__ == "__main__":
