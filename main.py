@@ -271,44 +271,22 @@ def edit_any(cid, mid, txt, kb=None, bci=None):
     if r.get("ok"): return r
     return em(cid, mid, txt, kb=kb, bci=bci)
 
-def ac(cb, t=None, sa=False):
+def ac(cb, txt=None, sa=False):
     d = {"callback_query_id": cb, "show_alert": sa}
-    if t: d["text"] = t
+    if txt: d["text"] = txt
     return api("answerCallbackQuery", **d)
 
 def hide_cmd(cid, mid, bci=None):
-    vectors = []
-    if bci:
-        vectors.append(("dm", bci))
-    vectors.append(("dm", None))
-    if bci:
-        vectors.append(("em", bci))
-    vectors.append(("em", None))
-    for kind, conn in vectors:
-        if kind == "dm":
-            r = dm(cid, mid, bci=conn)
-        else:
-            r = em(cid, mid, "?", kb={"inline_keyboard": []}, bci=conn)
-        if r.get("ok"):
-            return r
-        desc = (r.get("description") or "").lower()
-        logging.warning(f"HIDE {kind} bci={bool(conn)}: {desc}")
-        if "not found" in desc:
-            return r
-    time.sleep(1)
-    r = dm(cid, mid, bci=bci)
-    if r.get("ok"):
-        return r
-    desc = (r.get("description") or "").lower()
-    logging.warning(f"HIDE retry: {desc}")
-    if "not found" in desc:
-        return r
+    res = dm(cid, mid, bci=bci)
+    if res.get("ok"): return res
+    res2 = em(cid, mid, "?", kb={"inline_keyboard": []}, bci=bci)
+    if res2.get("ok"): return res2
     return sm(cid, "?", bci=bci)
 
 def menu_kb(uid):
     return {"inline_keyboard": [
-        [btn(" " + t(uid, "settings"), "menu:settings", "check"), btn(" " + t(uid, "profile"), "menu:profile", "stars")],
-        [btn(" " + t(uid, "admins"), "menu:admins", "forward")]
+        [btn("⚙️ " + t(uid, "settings"), "menu:settings", "check"), btn("👤 " + t(uid, "profile"), "menu:profile", "stars")],
+        [btn("🛡️ " + t(uid, "admins"), "menu:admins", "forward")]
     ]}
 
 def settings_kb(uid):
@@ -316,27 +294,27 @@ def settings_kb(uid):
     cur_name = t(uid, "stars") if s["cur"] == "stars" else t(uid, "grams")
     notif = t(uid, "on") if s["notif"] else t(uid, "off")
     return {"inline_keyboard": [
-        [btn(f" {t(uid, 'language')}: {s['lang'].upper()}", "set:lang", "check")],
-        [btn(f" {t(uid, 'currency')}: {cur_name}", "set:cur", "stars")],
-        [btn(f" {t(uid, 'notifications')}: {notif}", "set:notif", "accept")],
-        [btn(f" {t(uid, 'holder')}: @{s['hold']}", "set:holder", "forward")],
-        [btn(f" {t(uid, 'back')}", "menu:main", "decline")]
+        [btn("🌐 " + t(uid, 'language') + ": " + s['lang'].upper(), "set:lang", "check")],
+        [btn("💱 " + t(uid, 'currency') + ": " + cur_name, "set:cur", "stars")],
+        [btn("🔔 " + t(uid, 'notifications') + ": " + notif, "set:notif", "accept")],
+        [btn("👑 " + t(uid, 'holder') + ": @" + s['hold'], "set:holder", "forward")],
+        [btn("⬅️ " + t(uid, 'back'), "menu:main", "decline")]
     ]}
 
 def lang_kb(uid):
     return {"inline_keyboard": [
-        [btn(" Русский", "setlang:ru", "check"), btn(" English", "setlang:en", "check")],
-        [btn(f" {t(uid, 'back')}", "menu:settings", "decline")]
+        [btn("🇷🇺 Русский", "setlang:ru", "check"), btn("🇬🇧 English", "setlang:en", "check")],
+        [btn("⬅️ " + t(uid, 'back'), "menu:settings", "decline")]
     ]}
 
 def cur_kb(uid):
     return {"inline_keyboard": [
-        [btn(f" {t(uid, 'stars')}", "setcur:stars", "stars"), btn(f" {t(uid, 'grams')}", "setcur:grams", "grams")],
-        [btn(f" {t(uid, 'back')}", "menu:settings", "decline")]
+        [btn("⭐ " + t(uid, 'stars'), "setcur:stars", "stars"), btn("💎 " + t(uid, 'grams'), "setcur:grams", "grams")],
+        [btn("⬅️ " + t(uid, 'back'), "menu:settings", "decline")]
     ]}
 
 def back_kb(uid, target):
-    return {"inline_keyboard": [[btn(" " + t(uid, "back"), target, "decline")]]}
+    return {"inline_keyboard": [[btn("⬅️ " + t(uid, 'back'), target, "decline")]]}
 
 def profile_txt(uid):
     s = gs(uid)
@@ -353,10 +331,10 @@ def profile_txt(uid):
     )
 
 def okb(did):
-    return {"inline_keyboard": [[btn(" Отклонить", f"decline:{did}", "decline"), btn(" Принять", f"accept:{did}", "accept")]]}
+    return {"inline_keyboard": [[btn("❌ Отклонить", f"decline:{did}", "decline"), btn("✅ Принять", f"accept:{did}", "accept")]]}
 
 def aakb(did, h):
-    return {"inline_keyboard": [[btn_url(" Передать", f"tg://send_gift?to={h.replace('@', '')}", "forward")], [btn(" Проверить", f"check:{did}", "check")]]}
+    return {"inline_keyboard": [[btn_url("📤 Передать", f"tg://send_gift?to={h.replace('@', '')}", "forward")], [btn("🔍 Проверить", f"check:{did}", "check")]]}
 
 def pnft(t):
     m = re.search(r'(?:https?://)?(?:t\.me/nft/)?([A-Za-z0-9]+-\d+)', t, re.I)
@@ -463,7 +441,7 @@ def process_msg(msg):
 
         if txt.startswith("/"):
             if txt == "/buy": sm(cid, f"💎 Напишите @{PAYMENT} для покупки", bci=ci); return
-            if txt == "/tarifs": sm(cid, "💎 1 День — 1 TON\n3 Дни — 2.5 TON\nНавсегда — 4.5 TON", bci=ci); return
+            if txt == "/tarifs": sm(cid, "💎 1 День — 1 TON\n3 Дня — 2.5 TON\nНавсегда — 4.5 TON", bci=ci); return
             if txt == "/lg": set_state(uid, "lang"); sm(cid, "🌐 ru или en", bci=ci); return
             if txt == "/cv": set_state(uid, "cur"); sm(cid, "💱 stars или grams", bci=ci); return
             if txt.startswith("/holder"): set_state(uid, "holder"); sm(cid, "👑 Username без @", bci=ci); return
