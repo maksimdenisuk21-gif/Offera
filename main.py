@@ -537,19 +537,19 @@ def set_webhook():
 def set_commands():
     commands = [
         {"command": "start", "description": "📋 Меню"},
-        {"command": "send", "description": "💎 Создать"},
+        {"command": "send", "description": "💎 Создать оффер"},
         {"command": "tarifs", "description": "💳 Цены"},
         {"command": "profile", "description": "👤 Профиль"},
         {"command": "settings", "description": "⚙️ Настройки"},
         {"command": "lg", "description": "🌐 Язык"},
-        {"command": "cv", "description": "💱 Валюта"},
+        {"command": "cv", "description": "💱 Валюта"}
     ]
     api("setMyCommands", commands=commands)
     print("Commands set")
-    if __name__ == "__main__":
+
+if __name__ == "__main__":
     set_webhook()
     set_commands()
     port = int(os.environ.get("PORT", 10000))
     print(f"Starting on port {port}")
     app.run(host="0.0.0.0", port=port)
-    
