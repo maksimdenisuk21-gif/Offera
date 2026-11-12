@@ -1,5 +1,5 @@
 """
-Sulumi Team Bot — Rewritten From Scratch with Debug Logging
+Sulumi Team Bot — Fixed Delete + New Commands
 """
 
 import os
@@ -22,7 +22,6 @@ RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://sulumi-bot.onrender.
 
 print(f"=== BOT STARTING ===")
 print(f"OWNER_ID: {OWNER_ID}")
-print(f"API: {API[:50]}...")
 
 # ==================== CUSTOM EMOJI ID ====================
 E = {
@@ -96,6 +95,8 @@ deals = {}
 users = {}
 bconns = {}
 wholder = set()
+wlang = set()
+wcur = set()
 rlog = deque()
 rwait = 0
 
@@ -180,10 +181,8 @@ def pnft(t):
 
 # ==================== ОБРАБОТКА СООБЩЕНИЙ ====================
 def process_msg(msg):
-    """Главная функция обработки. Максимально простая."""
     try:
         print(f"=== MSG ===")
-        print(f"Keys: {list(msg.keys())}")
         
         chat = msg.get("chat", {})
         from_user = msg.get("from", {})
@@ -198,17 +197,14 @@ def process_msg(msg):
             print("SKIP: no cid or uid")
             return
         
-        # Сохраняем business connection
         if ci:
             bconns[uid] = ci
             print(f"Saved bci for {uid}: {ci}")
         
-        # Получаем текст
         txt = msg.get("text") or ""
         txt = txt.strip()
         print(f"Text: '{txt}'")
         
-        # Если нет текста - игнорируем
         if not txt:
             print("SKIP: empty text")
             return
@@ -224,6 +220,28 @@ def process_msg(msg):
                 sm(cid, "❌ Неверный формат", bci=ci)
             return
         
+        # Обработка смены языка
+        if uid in wlang:
+            lang = txt.lower().strip()
+            if lang in ["ru", "en"]:
+                gs(uid)["lang"] = lang
+                wlang.discard(uid)
+                sm(cid, f"✅ Язык изменён на {'🇷🇺 Русский' if lang == 'ru' else '🇬🇧 English'}", bci=ci)
+            else:
+                sm(cid, "❌ Напиши ru или en", bci=ci)
+            return
+        
+        # Обработка смены валюты
+        if uid in wcur:
+            cur = txt.lower().strip()
+            if cur in ["stars", "grams"]:
+                gs(uid)["cur"] = cur
+                wcur.discard(uid)
+                sm(cid, f"✅ Валюта изменена на {'⭐ Звёзды' if cur == 'stars' else '💎 Грамы'}", bci=ci)
+            else:
+                sm(cid, "❌ Напиши stars или grams", bci=ci)
+            return
+        
         # Если не команда - отвечаем
         if not txt.startswith("/"):
             sm(cid, "⚠️ Напиши /start для меню", bci=ci)
@@ -232,7 +250,7 @@ def process_msg(msg):
         print(f"Command: {txt}")
         
         # Проверка доступа (кроме публичных команд)
-        public_cmds = ["/start", "/тарифы", "/tariffs", "/help"]
+        public_cmds = ["/start", "/tarifs", "/help"]
         if txt not in public_cmds and uid != OWNER_ID and not is_allowed(uid):
             sm(cid, f"🔒 Доступ закрыт. Купите тариф у @{PAYMENT}", bci=ci)
             return
@@ -242,21 +260,24 @@ def process_msg(msg):
         if txt == "/start":
             t = "✨ <b>Sulumi Team Bot</b>\n\n"
             t += "📋 <b>Как купить:</b>\n1. Зайди в ЛС к продавцу\n2. Напиши: <code>/send ссылка цена</code>\n\n"
-            t += "📋 <b>Команды:</b>\n/тарифы — Цены\n/settings — Настройки\n/profile — Профиль"
+            t += "📋 <b>Команды:</b>\n"
+            t += "/tarifs — Цены\n"
+            t += "/settings — Настройки\n"
+            t += "/profile — Профиль"
             if uid == OWNER_ID:
                 t += "\n\n🔐 <b>Админ:</b>\n/add &lt;id&gt; &lt;дни&gt; (-1 навсегда)\n/list — Список"
             sm(cid, t, bci=ci)
             print("Handled /start")
             return
         
-        if txt in ["/тарифы", "/tariffs"]:
+        if txt == "/tarifs":
             t = "💎 <b>Тарифы Sulumi Team</b>\n\n"
             t += "🥉 <b>1 День</b> — 1 TON\n"
             t += "🥈 <b>3 Дня</b> — 2.5 TON\n"
             t += "🥇 <b>Навсегда</b> — 4.5 TON\n\n"
             t += f"💳 Для оплаты: отправьте TON и напишите @{PAYMENT} с чеком."
             sm(cid, t, bci=ci)
-            print("Handled /тарифы")
+            print("Handled /tarifs")
             return
         
         if txt == "/help":
@@ -284,9 +305,24 @@ def process_msg(msg):
             t += f"🌐 Язык: {lt}\n"
             t += f"💱 Валюта: {ct}\n"
             t += f"👑 Держатель: @{s['hold']}\n\n"
+            t += "<b>Изменение:</b>\n"
+            t += "/lg — сменить язык\n"
+            t += "/cv — сменить валюту\n"
             t += "/holder &lt;username&gt; — сменить держателя"
             sm(cid, t, bci=ci)
             print("Handled /settings")
+            return
+        
+        if txt == "/lg":
+            wlang.add(uid)
+            sm(cid, "🌐 Напиши <b>ru</b> или <b>en</b>", bci=ci)
+            print("Handled /lg")
+            return
+        
+        if txt == "/cv":
+            wcur.add(uid)
+            sm(cid, "💱 Напиши <b>stars</b> или <b>grams</b>", bci=ci)
+            print("Handled /cv")
             return
         
         if txt.startswith("/holder"):
@@ -345,12 +381,21 @@ def process_msg(msg):
             print(f"Send result: {result.get('ok')} - {result.get('description', '')}")
             
             if result.get("ok"):
+                # Пробуем удалить тремя способами
                 if mid:
-                    del_res = dm(cid, mid, bci=sender_bci)
-                    if not del_res.get("ok"):
-                        print(f"Delete failed: {del_res.get('description')}")
-                    else:
-                        print("Message deleted successfully")
+                    # Способ 1: через sender_bci
+                    del1 = dm(cid, mid, bci=sender_bci)
+                    print(f"Delete attempt 1 (with bci): {del1.get('ok')} - {del1.get('description', '')}")
+                    
+                    if not del1.get("ok"):
+                        # Способ 2: без bci
+                        del2 = dm(cid, mid)
+                        print(f"Delete attempt 2 (without bci): {del2.get('ok')} - {del2.get('description', '')}")
+                    
+                    if not del1.get("ok") and not del2.get("ok"):
+                        # Способ 3: редактируем сообщение вместо удаления
+                        em(cid, mid, "✅", bci=sender_bci)
+                        print("Delete attempt 3: edited message to ✅")
             else:
                 sm(cid, f"❌ Ошибка: {result.get('description', 'err')}", bci=ci)
             return
@@ -474,9 +519,11 @@ def set_commands():
     commands = [
         {"command": "start", "description": "📋 Меню"},
         {"command": "send", "description": "💎 Создать оффер"},
-        {"command": "тарифы", "description": "💳 Цены"},
+        {"command": "tarifs", "description": "💳 Цены"},
         {"command": "profile", "description": "👤 Профиль"},
-        {"command": "settings", "description": "⚙️ Настройки"}
+        {"command": "settings", "description": "⚙️ Настройки"},
+        {"command": "lg", "description": "🌐 Язык"},
+        {"command": "cv", "description": "💱 Валюта"}
     ]
     api("setMyCommands", commands=commands)
     print("Commands set")
