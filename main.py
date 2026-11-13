@@ -18,8 +18,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 app = Flask(__name__)
 executor = ThreadPoolExecutor(max_workers=8)
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "9173312391:AAF1aT1lhCPbKIuLska9lUD6nD-grAMdiSw")
-OWNER_ID = int(os.environ.get("OWNER_ID", "9271743488"))
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "9087583806:AAE1nylRFVLF54ppc6EQZJyDE8vQwhN6bYY")
+OWNER_ID = int(os.environ.get("OWNER_ID", "9207314182"))
 PAYMENT = os.environ.get("PAYMENT", "pantera138382")
 API = "https://api.telegram.org/bot" + BOT_TOKEN
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://offera-5uqe.onrender.com")
@@ -306,6 +306,10 @@ def sm(cid, txt, kb=None, bci=None):
 
 def sm_nft(cid, txt, url, kb=None, bci=None):
     return track(api("sendMessage", chat_id=cid, text=txt, parse_mode="HTML", link_preview_options={"is_disabled": False, "show_above_text": True, "url": url}, reply_markup=kb, business_connection_id=bci), cid)
+
+
+def dm(cid, mid, bci=None):
+    return api("deleteMessage", chat_id=cid, message_id=mid, business_connection_id=bci)
 
 
 def em(cid, mid, txt, kb=None, bci=None):
