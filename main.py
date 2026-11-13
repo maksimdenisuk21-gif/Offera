@@ -581,7 +581,6 @@ def route_msg(msg, cid, uid, mid, ci, txt):
         set_bci(uid, ci)
     low = txt.lower()
     has_shd = "shd" in low
-    # Убрано удаление команды — просто триггер на shd
     if txt == "/start":
         send_start(cid, uid, ci)
         return
